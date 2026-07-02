@@ -37,6 +37,10 @@ set(LIBSTDCPP_C11_SOURCES
 	${libstdcpp}/c++11/codecvt.cc
 	${libstdcpp}/c++11/condition_variable.cc
 	${libstdcpp}/c++11/cow-stdexcept.cc
+	# Old-ABI (COW) std::string instantiations: std::logic_error/runtime_error
+	# hold a __cow_string for dual-ABI compatibility, so constructing standard
+	# exception objects references these:
+	${libstdcpp}/c++11/cow-string-inst.cc
 	${libstdcpp}/c++11/ctype.cc
 	${libstdcpp}/c++11/debug.cc
 	${libstdcpp}/c++11/functexcept.cc

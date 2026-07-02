@@ -18,28 +18,28 @@ set(LIBSUPCPP_SOURCES
 	${libsupcpp}/del_opvs.cc
 	${libsupcpp}/del_opvnt.cc
 	${libsupcpp}/dyncast.cc
-	# ${libsupcpp}/eh_alloc.cc
-	# ${libsupcpp}/eh_arm.cc
-	# ${libsupcpp}/eh_aux_runtime.cc
-	# ${libsupcpp}/eh_call.cc
-	# ${libsupcpp}/eh_catch.cc
+	${libsupcpp}/eh_alloc.cc
+	${libsupcpp}/eh_arm.cc
+	${libsupcpp}/eh_aux_runtime.cc
+	${libsupcpp}/eh_call.cc
+	${libsupcpp}/eh_catch.cc
 	${libsupcpp}/eh_exception.cc
-	# ${libsupcpp}/eh_globals.cc
-	# ${libsupcpp}/eh_personality.cc
-	# ${libsupcpp}/eh_ptr.cc
-	# ${libsupcpp}/eh_term_handler.cc
-	# ${libsupcpp}/eh_terminate.cc
-	# ${libsupcpp}/eh_tm.cc
-	# ${libsupcpp}/eh_throw.cc
-	# ${libsupcpp}/eh_type.cc
-	# ${libsupcpp}/eh_unex_handler.cc
+	${libsupcpp}/eh_globals.cc
+	${libsupcpp}/eh_personality.cc
+	${libsupcpp}/eh_ptr.cc
+	${libsupcpp}/eh_term_handler.cc
+	${libsupcpp}/eh_terminate.cc
+	# ${libsupcpp}/eh_tm.cc # transactional memory only: never referenced, avoid weak _ITM_* refs
+	${libsupcpp}/eh_throw.cc
+	${libsupcpp}/eh_type.cc
+	${libsupcpp}/eh_unex_handler.cc
 	${libsupcpp}/enum_type_info.cc
 	${libsupcpp}/function_type_info.cc
 	${libsupcpp}/fundamental_type_info.cc
 	${libsupcpp}/guard.cc
-	# ${libsupcpp}/guard_error.cc
+	${libsupcpp}/guard_error.cc
 	${libsupcpp}/hash_bytes.cc
-	# ${libsupcpp}/nested_exception.cc
+	${libsupcpp}/nested_exception.cc
 	${libsupcpp}/new_handler.cc
 	${libsupcpp}/new_op.cc
 	${libsupcpp}/new_opnt.cc
@@ -64,9 +64,15 @@ set(LIBSUPCPP_SOURCES
 	${libsupcpp}/tinfo2.cc
 	${libsupcpp}/vec.cc
 	${libsupcpp}/vmi_class_type_info.cc
-	# ${libsupcpp}/vterminate.cc
+	# ${libsupcpp}/vterminate.cc # requires cp-demangle.c (~100kB); glue/vterminate_lite.cc is used instead
 )
 
 target_sources(metamodule-plugin-libc PRIVATE
     ${LIBSUPCPP_SOURCES}
+)
+
+# eh_call.cc implements the (deprecated) std::unexpected machinery
+set_source_files_properties(
+    ${libsupcpp}/eh_call.cc
+    PROPERTIES COMPILE_OPTIONS "-Wno-deprecated-declarations"
 )

@@ -12,6 +12,7 @@ endif()
 
 include(libsupcpp.cmake)
 include(libstdcpp.cmake)
+include(libgcc.cmake)
 
 
 target_compile_options(metamodule-plugin-libc PRIVATE

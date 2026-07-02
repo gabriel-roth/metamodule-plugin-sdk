@@ -113,6 +113,21 @@ function(create_plugin)
         -Wl,-Map,plugin.map,--cref
         -Wl,--gc-sections
         -Wl,--require-defined=init
+        # Bind references to symbols defined in the plugin to the plugin's own
+        # definition at link time. This matches how the MetaModule loader
+        # resolves symbols anyway, and it lets place-relative references
+        # (e.g. R_ARM_TARGET2/REL32 typeinfo refs in .ARM.extab) resolve
+        # statically instead of becoming dynamic relocations the loader
+        # does not support.
+        -Wl,-Bsymbolic
+        # Do not export symbols that come from static archives (plugin-libc,
+        # libgcc): exported symbols are gc-sections roots, so without this the
+        # .so keeps unreferenced library code alive (e.g. the transactional
+        # memory clones in cow-stdexcept.cc, whose weak undefined _ITM_*
+        # references the loader would report as missing symbols). The plugin's
+        # own objects are linked directly (not via an archive), so init() and
+        # sdk_version() remain exported.
+        -Wl,--exclude-libs,ALL
         -nostartfiles 
         -nostdlib
         ${ARCH_MP15x_A7_FLAGS}

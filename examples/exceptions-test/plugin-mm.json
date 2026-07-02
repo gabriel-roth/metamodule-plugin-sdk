@@ -1,0 +1,12 @@
+{
+	"MetaModuleBrandName": "Exceptions Test",
+	"MetaModuleBrandSlug": "ExceptionsTest",
+	"MetaModulePluginMaintainer": "4ms Company",
+	"MetaModuleDescription": "Test plugin for C++ exception support in the MetaModule plugin SDK",
+	"MetaModuleIncludedModules": [
+		{
+			"slug": "ExcTest",
+			"name": "Exceptions Test"
+		}
+	]
+}
