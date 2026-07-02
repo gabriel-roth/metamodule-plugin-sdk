@@ -24,10 +24,23 @@ set(LIBC_ARGZ_SOURCES
 	${libc}/argz/envz_merge.c
 	${libc}/argz/envz_strip.c
 )
+########### syscalls
+# Non-reentrant POSIX wrappers (read() -> _read_r(_REENT,..) etc.), used by
+# libstdc++'s basic_file_stdio.cc. The reentrant _*_r functions are provided
+# by the firmware.
+
+set(LIBC_SYSCALLS_SOURCES
+	${libc}/syscalls/sysfstat.c
+	${libc}/syscalls/syslseek.c
+	${libc}/syscalls/sysread.c
+	${libc}/syscalls/syswrite.c
+)
+
 ########### ctype
 
 set(LIBC_CTYPE_SOURCES
 	${libc}/ctype/ctype_.c
+	${libc}/ctype/jp2uc.c # charset conversion used by wide-char locale facets
 	${libc}/ctype/isalnum.c
 	${libc}/ctype/isalpha.c
 	${libc}/ctype/iscntrl.c
@@ -695,6 +708,7 @@ target_sources(metamodule-plugin-libc PRIVATE
 	${LIBC_STRING_SOURCES}
 	${LIBC_STDIO_SOURCES}
 	${LIBC_STDLIB_SOURCES}
+	${LIBC_SYSCALLS_SOURCES}
 	${LIBC_TIME_SOURCES}
 )
 
@@ -718,6 +732,11 @@ target_compile_options(metamodule-plugin-libc PRIVATE
 )
 set_source_files_properties(
     ${libc}/machine/arm/aeabi_memcpy.c PROPERTIES COMPILE_OPTIONS "-Wno-builtin-declaration-mismatch"
+)
+# jp2uc.c has an informational upstream #warning (unicode->JIS back-conversion
+# not implemented in newlib)
+set_source_files_properties(
+    ${libc}/ctype/jp2uc.c PROPERTIES COMPILE_OPTIONS "-Wno-cpp"
 )
 
 target_compile_definitions(metamodule-plugin-libc PRIVATE
