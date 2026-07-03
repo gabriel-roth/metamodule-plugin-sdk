@@ -57,6 +57,26 @@ TC_SYSROOT="$("$TC/arm-none-eabi-gcc" -print-sysroot)"
 ARCH_FLAGS="-mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard -mthumb-interwork -mno-unaligned-access -mtune=cortex-a7"
 PIC_FLAGS="-fPIC -ffunction-sections -fdata-sections -O2 -g"
 
+NPROC="$(sysctl -n hw.ncpu 2>/dev/null || nproc)"
+# Recursive `make -j` on the newlib / libstdc++ autotools trees occasionally
+# dies on a transient parallel-build race -- more likely on many-core
+# machines, which is why this can fail on one mac and succeed on another. The
+# build is fully resumable, so retry a couple of times (each retry just
+# continues where the last left off) before treating it as a real failure.
+run_make() {
+	local tries=0
+	until make -j"$NPROC"; do
+		tries=$((tries + 1))
+		if [ "$tries" -ge 3 ]; then
+			echo "ERROR: 'make' failed $tries times in $(pwd) -- this is a real" >&2
+			echo "       build error, not a parallel race. Re-run with 'make' (no" >&2
+			echo "       -j) here to see the failing command clearly." >&2
+			return 1
+		fi
+		echo "==== 'make' failed (likely a -j$NPROC parallel race); retrying ($tries/2)..." >&2
+	done
+}
+
 mkdir -p "$WORK"
 cd "$WORK"
 
@@ -107,7 +127,7 @@ if [ ! -f Makefile ]; then
 	RANLIB_FOR_TARGET="$TC/arm-none-eabi-gcc-ranlib" \
 	CFLAGS_FOR_TARGET="$ARCH_FLAGS $PIC_FLAGS"
 fi
-make -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)"
+run_make
 cd "$WORK"
 
 echo "==== 2a. verify newlib.h matches the toolchain's"
@@ -155,7 +175,7 @@ if [ ! -f Makefile ]; then
 	CFLAGS="-ffunction-sections -fdata-sections -O2 -g" \
 	CXXFLAGS="-ffunction-sections -fdata-sections -O2 -g"
 fi
-make -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)"
+run_make
 cd "$WORK"
 
 echo "==== 3a. verify c++config.h matches the toolchain's"
