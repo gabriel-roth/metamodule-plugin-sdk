@@ -16,6 +16,7 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <random>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -281,6 +282,18 @@ int run_stream_tests() {
 
 	{
 		check(std::to_string(42) == "42" && std::stoi("-7") == -7, "to_string/stoi");
+	}
+
+	{
+		// std::random_device is widely used by ported VCV modules. On this
+		// platform it falls back to a PRNG; the important thing is that it
+		// links (a misconfigured libstdc++ makes it reference getentropy,
+		// which the firmware does not provide) and produces values.
+		std::random_device rd;
+		std::mt19937 gen{rd()};
+		std::uniform_int_distribution<int> dist{1, 6};
+		int v = dist(gen);
+		check(v >= 1 && v <= 6, "random_device/mt19937");
 	}
 
 	printf("[stream-test] %d passed, %d failed\n", passed, failed);

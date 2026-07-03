@@ -117,6 +117,13 @@ echo "==== 3. libstdc++"
 # Link tests are not possible (bare metal, GCC_NO_EXECUTABLES), so probe
 # answers that need them are seeded to match the toolchain's installed
 # c++config.h (arm-none-eabi/include/c++/*/arm-none-eabi/*/bits/c++config.h).
+# The result is verified against that file below.
+#
+# The arch flags and -fPIC are part of $CC/$CXX (not CFLAGS/CXXFLAGS):
+# some configure probes replace CXXFLAGS entirely (the atomic-builtins asm
+# probe sets CXXFLAGS='-O0 -S'), and without -mcpu the probe miscompiles
+# for the default architecture and concludes there are no atomic builtins.
+# This is also how the in-tree multilib build passes arch flags.
 mkdir -p build-libstdcxx && cd build-libstdcxx
 if [ ! -f Makefile ]; then
 ../${GCC_VER}/libstdc++-v3/configure \
@@ -131,14 +138,34 @@ if [ ! -f Makefile ]; then
 	ac_cv_func_uselocale=no ac_cv_func_sincos=no ac_cv_func__sincos=no \
 	ac_cv_func_strtof=yes ac_cv_func_strtold=no \
 	ac_cv_func___cxa_thread_atexit=no ac_cv_func___cxa_thread_atexit_impl=no \
-	glibcxx_cv_atomic_bool=yes glibcxx_cv_atomic_short=yes \
-	glibcxx_cv_atomic_int=yes glibcxx_cv_atomic_long_long=yes \
-	glibcxx_cv_c99_complex_cxx98=no glibcxx_cv_c99_complex_cxx11=no \
-	CFLAGS="$ARCH_FLAGS $PIC_FLAGS" \
-	CXXFLAGS="$ARCH_FLAGS $PIC_FLAGS"
+	glibcxx_cv_c99_complex_cxx98=yes glibcxx_cv_c99_complex_cxx11=yes \
+	glibcxx_cv_getentropy=no glibcxx_cv_arc4random=no \
+	glibcxx_cv_openat=no glibcxx_cv_unlinkat=no \
+	glibcxx_cv_readlink=no glibcxx_cv_symlink=no \
+	glibcxx_cv_fchmod=no glibcxx_cv_fchmodat=no \
+	CC="$TC/arm-none-eabi-gcc $ARCH_FLAGS -fPIC" \
+	CXX="$TC/arm-none-eabi-g++ $ARCH_FLAGS -fPIC" \
+	CFLAGS="-ffunction-sections -fdata-sections -O2 -g" \
+	CXXFLAGS="-ffunction-sections -fdata-sections -O2 -g"
 fi
 make -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)"
 cd "$WORK"
+
+echo "==== 3a. verify c++config.h matches the toolchain's"
+# Everything except the __GLIBCXX__ datestamp (12.3.0 release vs the
+# toolchain's 12.3.1 branch snapshot) must be identical, otherwise the
+# archive's internals disagree with the headers plugins compile against.
+# (This catches, e.g., std::random_device referencing getentropy that the
+# firmware does not provide.)
+MULTIDIR=$("$TC/arm-none-eabi-gcc" $ARCH_FLAGS -print-multi-directory)
+TC_CXXCONF="$TC_SYSROOT/include/c++/$("$TC/arm-none-eabi-gcc" -dumpversion)/arm-none-eabi/$MULTIDIR/bits/c++config.h"
+GEN_CXXCONF="build-libstdcxx/include/arm-none-eabi/bits/c++config.h"
+if ! diff <(grep -E "^#define _GLIBCXX|^/\* #undef _GLIBCXX" "$GEN_CXXCONF" | grep -v "__GLIBCXX__" | sort) \
+          <(grep -E "^#define _GLIBCXX|^/\* #undef _GLIBCXX" "$TC_CXXCONF" | grep -v "__GLIBCXX__" | sort); then
+	echo "ERROR: generated c++config.h differs from the toolchain's -- seeds need updating" >&2
+	exit 1
+fi
+echo "c++config.h: OK (identical configuration)"
 
 ##############################################################################
 echo "==== 4. unwinder + glue objects (same sources libgcc.cmake compiles)"
