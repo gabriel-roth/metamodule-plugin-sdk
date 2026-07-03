@@ -60,6 +60,13 @@ PIC_FLAGS="-fPIC -ffunction-sections -fdata-sections -O2 -g"
 mkdir -p "$WORK"
 cd "$WORK"
 
+# Mirror all stdout/stderr to a logfile. The recursive -j build produces a lot
+# of interleaved output, so when something fails the error scrolls off the
+# terminal -- grep this file (e.g. for 'Error ' or 'error:') to find it.
+BUILD_LOG="$WORK/build.log"
+exec > >(tee "$BUILD_LOG") 2>&1
+echo "==== full build output is being saved to $BUILD_LOG"
+
 ##############################################################################
 echo "==== 1. Sources"
 [ -f ${NEWLIB_VER}.tar.gz ] || curl -L -o ${NEWLIB_VER}.tar.gz "$NEWLIB_URL"
