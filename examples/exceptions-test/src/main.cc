@@ -92,7 +92,7 @@ int run_exception_tests() {
 		bool ok = false;
 		std::vector<int> v{1, 2, 3};
 		try {
-			v.at(99);
+			[[maybe_unused]] auto _ =v.at(99);
 		} catch (std::out_of_range &) {
 			ok = true;
 		}
@@ -263,11 +263,11 @@ int run_stream_tests() {
 	{
 		// Filesystem may not be writable from a plugin's working directory;
 		// pass if the file round-trips or if the open fails cleanly.
-		std::ofstream out{"exc-test-scratch.txt"};
+		std::ofstream out{"usb:/exc-test-scratch.txt"};
 		if (out.is_open()) {
 			out << "roundtrip " << 99;
 			out.close();
-			std::ifstream in{"exc-test-scratch.txt"};
+			std::ifstream in{"usb:/exc-test-scratch.txt"};
 			std::string word;
 			int num{};
 			in >> word >> num;
