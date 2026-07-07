@@ -2,9 +2,11 @@
 
 ### v2.2.1
 
-- c++ streams (fstream, iostream, sstream, etc) are fully supported in plugins.
-- c++ exceptions (throw, catch, try, etc) are fully supported in plugins.
-- arm gcc toolchain v15.3 is now supported, in addition to v12.2/12.3
+- C++ streams (fstream, iostream, sstream, etc) are fully supported in plugins.
+- C++ exceptions (throw, catch, try, etc) are fully supported in plugins.
+- Arm gcc toolchain v15.3 is now supported, in addition to v12.2/12.3
+   - Toolchain v13.2, 13.3, 14.2, 14.3, and 15.2 are also supported by running
+     a script to build the library archive
 - All libc/libstdc++/etc sources are provided in a .a file. This makes
   compiling a plugin a little faster, but otherwise doesn't change anything for
   plugin developers.
