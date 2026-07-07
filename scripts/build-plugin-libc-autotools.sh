@@ -2,7 +2,7 @@
 #
 # Build plugin-libc from the real newlib and libstdc++ autotools build
 # systems, matching the newlib/libstdc++ versions shipped in a supported ARM
-# GNU toolchain release (12.3 or 15.3).
+# GNU toolchain release (12.3, 13.3, 14.3, or 15.3).
 #
 # Produces plugin-libc/autotools-build/gcc<N>/libmetamodule-plugin-libc-gcc<N>.a
 # -- a drop-in replacement for the archive in plugin-libc/lib/ (it is NOT
@@ -28,7 +28,7 @@
 #  7. Merges everything into one libmetamodule-plugin-libc-gcc<N>.a
 #
 # Usage:
-#   scripts/build-plugin-libc-autotools.sh [12|15] [/path/to/arm-gnu-toolchain/bin]
+#   scripts/build-plugin-libc-autotools.sh [12|13|14|15] [/path/to/arm-gnu-toolchain/bin]
 #
 # Arguments may be given in either order. With a bare version number, the
 # arm-none-eabi-gcc found on PATH must be that version. With a toolchain
@@ -46,12 +46,12 @@ REQUESTED_VER=""
 TOOLCHAIN_BASE_DIR="${TOOLCHAIN_BASE_DIR:-}"
 for arg in "$@"; do
 	case "$arg" in
-		12|15) REQUESTED_VER="$arg" ;;
+		12|13|14|15) REQUESTED_VER="$arg" ;;
 		*)
 			if [ -d "$arg" ]; then
 				TOOLCHAIN_BASE_DIR="$arg"
 			else
-				echo "ERROR: argument '$arg' is neither a supported gcc version (12 or 15) nor a directory" >&2
+				echo "ERROR: argument '$arg' is neither a supported gcc version (12/13/14/15) nor a directory" >&2
 				exit 1
 			fi
 			;;
@@ -70,8 +70,10 @@ export PATH="$TC:$PATH"
 GCCVER=$("$TC/arm-none-eabi-gcc" -dumpversion)
 case "$GCCVER" in
 	12.2*|12.3*) GCC_MAJOR=12 ;;
+	13.3*)       GCC_MAJOR=13 ;;
+	14.3*)       GCC_MAJOR=14 ;;
 	15.3*)       GCC_MAJOR=15 ;;
-	*) echo "ERROR: arm-none-eabi-gcc $GCCVER at $TC; need 12.2/12.3 or 15.3" >&2; exit 1 ;;
+	*) echo "ERROR: arm-none-eabi-gcc $GCCVER at $TC; need 12.2/12.3, 13.3, 14.3, or 15.3" >&2; exit 1 ;;
 esac
 if [ -n "$REQUESTED_VER" ] && [ "$REQUESTED_VER" != "$GCC_MAJOR" ]; then
 	echo "ERROR: gcc $REQUESTED_VER requested, but arm-none-eabi-gcc at $TC is $GCCVER." >&2
@@ -84,6 +86,8 @@ fi
 # (check $SYSROOT/include/_newlib_version.h), gcc matching its gcc.
 case "$GCC_MAJOR" in
 	12) NEWLIB_VER=newlib-4.3.0.20230120; GCC_VER=gcc-12.3.0 ;;
+	13) NEWLIB_VER=newlib-4.4.0.20231231; GCC_VER=gcc-13.3.0 ;;
+	14) NEWLIB_VER=newlib-4.5.0.20241231; GCC_VER=gcc-14.3.0 ;;
 	15) NEWLIB_VER=newlib-4.6.0.20260123; GCC_VER=gcc-15.3.0 ;;
 esac
 NEWLIB_URL="https://sourceware.org/pub/newlib/${NEWLIB_VER}.tar.gz"
@@ -177,8 +181,13 @@ cd "$WORK"
 
 echo "==== 2a. verify newlib.h matches the toolchain's"
 GEN_NEWLIB_H=$(find build-newlib -name newlib.h -path "*targ-include*" | head -1)
-if ! diff <(grep -E "^#define|^/\* #undef" "$TC_SYSROOT/include/newlib.h" | grep -v VERSION | grep -v PATCHLEVEL | sort) \
-          <(grep -E "^#define|^/\* #undef" "$GEN_NEWLIB_H"              | grep -v VERSION | grep -v PATCHLEVEL | sort); then
+# _EXECL_USE_MALLOC and _HAVE_HW_MISALIGNED_ACCESS are ignored: ARM's 14.3
+# toolchain ships a newlib snapshot slightly newer than the 4.5.0 release
+# tarball, whose newlib.h template mentions these two (disabled) options that
+# the release's template does not. Both configurations leave them undefined,
+# so the resulting library is identical.
+if ! diff <(grep -E "^#define|^/\* #undef" "$TC_SYSROOT/include/newlib.h" | grep -v "VERSION\|PATCHLEVEL\|_EXECL_USE_MALLOC\|_HAVE_HW_MISALIGNED_ACCESS" | sort) \
+          <(grep -E "^#define|^/\* #undef" "$GEN_NEWLIB_H"              | grep -v "VERSION\|PATCHLEVEL\|_EXECL_USE_MALLOC\|_HAVE_HW_MISALIGNED_ACCESS" | sort); then
 	echo "ERROR: generated newlib.h differs from the toolchain's -- configure flags need updating" >&2
 	exit 1
 fi
@@ -197,15 +206,18 @@ echo "==== 3. libstdc++"
 # for the default architecture and concludes there are no atomic builtins.
 # This is also how the in-tree multilib build passes arch flags.
 # Extra seeds for probes that only exist in newer libstdc++ versions:
-#  - the chdir/chmod/getcwd/mkdir link-tests fail on bare metal (the ARM
-#    toolchain's c++config.h has them undefined)
+#  - the chdir/chmod/getcwd/mkdir link-tests (gcc >= 13) fail on bare metal
+#    (the ARM toolchain's c++config.h has them undefined)
 #  - std::stacktrace support (in libstdc++exp.a, not merged into our archive)
-#    is enabled in the ARM toolchain, and must match in c++config.h
+#    is enabled in the ARM toolchains from 14.3 on, and must match in
+#    c++config.h (13.3 ships with it disabled)
 EXTRA_LIBSTDCXX_ARGS=""
-if [ "$GCC_MAJOR" -ge 15 ]; then
-	EXTRA_LIBSTDCXX_ARGS="--enable-libstdcxx-backtrace=yes
-		glibcxx_cv_chdir=no glibcxx_cv_chmod=no
+if [ "$GCC_MAJOR" -ge 13 ]; then
+	EXTRA_LIBSTDCXX_ARGS="glibcxx_cv_chdir=no glibcxx_cv_chmod=no
 		glibcxx_cv_getcwd=no glibcxx_cv_mkdir=no"
+fi
+if [ "$GCC_MAJOR" -ge 14 ]; then
+	EXTRA_LIBSTDCXX_ARGS="$EXTRA_LIBSTDCXX_ARGS --enable-libstdcxx-backtrace=yes"
 fi
 mkdir -p build-libstdcxx && cd build-libstdcxx
 if [ ! -f Makefile ]; then
@@ -232,7 +244,7 @@ if [ ! -f Makefile ]; then
 	CFLAGS="-ffunction-sections -fdata-sections -O2 -g" \
 	CXXFLAGS="-ffunction-sections -fdata-sections -O2 -g"
 
-# The complex.h inverse-trig probe (gcc >= 15) is not a cache variable, so it
+# The complex.h inverse-trig probe (gcc >= 14) is not a cache variable, so it
 # cannot be seeded. It fails here only because the standalone probe resolves
 # #include <complex.h> to the *installed* toolchain's C++ <complex.h> wrapper
 # (which does not declare cacosf & co.), whereas the in-tree toolchain build
