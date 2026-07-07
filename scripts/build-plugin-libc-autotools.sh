@@ -2,7 +2,7 @@
 #
 # Build plugin-libc from the real newlib and libstdc++ autotools build
 # systems, matching the newlib/libstdc++ versions shipped in a supported ARM
-# GNU toolchain release (12.3, 13.3, 14.3, or 15.3).
+# GNU toolchain release (12.2/12.3, 13.2/13.3, 14.2/14.3, or 15.2/15.3).
 #
 # Produces plugin-libc/autotools-build/gcc<N>/libmetamodule-plugin-libc-gcc<N>.a
 # -- a drop-in replacement for the archive in plugin-libc/lib/ (it is NOT
@@ -69,11 +69,14 @@ TC="$TOOLCHAIN_BASE_DIR"
 export PATH="$TC:$PATH"
 GCCVER=$("$TC/arm-none-eabi-gcc" -dumpversion)
 case "$GCCVER" in
-	12.2*|12.3*) GCC_MAJOR=12 ;;
-	13.3*)       GCC_MAJOR=13 ;;
-	14.3*)       GCC_MAJOR=14 ;;
-	15.3*)       GCC_MAJOR=15 ;;
-	*) echo "ERROR: arm-none-eabi-gcc $GCCVER at $TC; need 12.2/12.3, 13.3, 14.3, or 15.3" >&2; exit 1 ;;
+	12.2*|12.3*) GCC_MAJOR=12; SRC_VARIANT=12.3 ;;
+	13.2*)       GCC_MAJOR=13; SRC_VARIANT=13.2 ;;
+	13.3*)       GCC_MAJOR=13; SRC_VARIANT=13.3 ;;
+	14.2*)       GCC_MAJOR=14; SRC_VARIANT=14.2 ;;
+	14.3*)       GCC_MAJOR=14; SRC_VARIANT=14.3 ;;
+	15.2*)       GCC_MAJOR=15; SRC_VARIANT=15.2 ;;
+	15.3*)       GCC_MAJOR=15; SRC_VARIANT=15.3 ;;
+	*) echo "ERROR: arm-none-eabi-gcc $GCCVER at $TC; need 12.2/12.3, 13.2/13.3, 14.2/14.3, or 15.2/15.3" >&2; exit 1 ;;
 esac
 if [ -n "$REQUESTED_VER" ] && [ "$REQUESTED_VER" != "$GCC_MAJOR" ]; then
 	echo "ERROR: gcc $REQUESTED_VER requested, but arm-none-eabi-gcc at $TC is $GCCVER." >&2
@@ -84,19 +87,24 @@ fi
 ##############################################################################
 # Source versions: newlib matching what the ARM toolchain release ships
 # (check $SYSROOT/include/_newlib_version.h), gcc matching its gcc.
-case "$GCC_MAJOR" in
-	12) NEWLIB_VER=newlib-4.3.0.20230120; GCC_VER=gcc-12.3.0 ;;
-	13) NEWLIB_VER=newlib-4.4.0.20231231; GCC_VER=gcc-13.3.0 ;;
-	14) NEWLIB_VER=newlib-4.5.0.20241231; GCC_VER=gcc-14.3.0 ;;
-	15) NEWLIB_VER=newlib-4.6.0.20260123; GCC_VER=gcc-15.3.0 ;;
+case "$SRC_VARIANT" in
+	12.3) NEWLIB_VER=newlib-4.3.0.20230120; GCC_VER=gcc-12.3.0 ;;
+	13.2) NEWLIB_VER=newlib-4.3.0.20230120; GCC_VER=gcc-13.2.0 ;;
+	13.3) NEWLIB_VER=newlib-4.4.0.20231231; GCC_VER=gcc-13.3.0 ;;
+	14.2) NEWLIB_VER=newlib-4.4.0.20231231; GCC_VER=gcc-14.2.0 ;;
+	14.3) NEWLIB_VER=newlib-4.5.0.20241231; GCC_VER=gcc-14.3.0 ;;
+	15.2) NEWLIB_VER=newlib-4.5.0.20241231; GCC_VER=gcc-15.2.0 ;;
+	15.3) NEWLIB_VER=newlib-4.6.0.20260123; GCC_VER=gcc-15.3.0 ;;
 esac
 NEWLIB_URL="https://sourceware.org/pub/newlib/${NEWLIB_VER}.tar.gz"
 GCC_URL="https://ftp.gnu.org/gnu/gcc/${GCC_VER}/${GCC_VER}.tar.xz"
 
 # Tarballs and extracted source trees are shared (version-named) in $BASE;
-# everything built lives in a per-gcc-version work dir so both archives can
-# be (re)built side by side.
-WORK="$BASE/gcc$GCC_MAJOR"
+# everything built lives in a per-gcc-version work dir so archives for
+# several versions can be (re)built side by side. The archive is named by
+# major version only: plugins must be built with the same toolchain the
+# archive was generated with, and plugin.cmake selects by major version.
+WORK="$BASE/gcc$SRC_VARIANT"
 OUT_NAME="libmetamodule-plugin-libc-gcc$GCC_MAJOR.a"
 
 TC_SYSROOT="$("$TC/arm-none-eabi-gcc" -print-sysroot)"
@@ -264,11 +272,16 @@ echo "==== 3a. verify c++config.h matches the toolchain's"
 # archive's internals disagree with the headers plugins compile against.
 # (This catches, e.g., std::random_device referencing getentropy that the
 # firmware does not provide.)
+#
+# _GLIBCXX_HAVE_O_NONBLOCK is ignored: ARM's 14.2 toolchain snapshot
+# backported that configure probe, which the gcc-14.2.0 release tarball
+# lacks. The macro is never referenced anywhere in libstdc++ (headers or
+# src), so the difference is cosmetic.
 MULTIDIR=$("$TC/arm-none-eabi-gcc" $ARCH_FLAGS -print-multi-directory)
 TC_CXXCONF="$TC_SYSROOT/include/c++/$("$TC/arm-none-eabi-gcc" -dumpversion)/arm-none-eabi/$MULTIDIR/bits/c++config.h"
 GEN_CXXCONF="build-libstdcxx/include/arm-none-eabi/bits/c++config.h"
-if ! diff <(grep -E "^#define _GLIBCXX|^/\* #undef _GLIBCXX" "$GEN_CXXCONF" | grep -v "__GLIBCXX__" | sort) \
-          <(grep -E "^#define _GLIBCXX|^/\* #undef _GLIBCXX" "$TC_CXXCONF" | grep -v "__GLIBCXX__" | sort); then
+if ! diff <(grep -E "^#define _GLIBCXX|^/\* #undef _GLIBCXX" "$GEN_CXXCONF" | grep -v "__GLIBCXX__\|_GLIBCXX_HAVE_O_NONBLOCK" | sort) \
+          <(grep -E "^#define _GLIBCXX|^/\* #undef _GLIBCXX" "$TC_CXXCONF" | grep -v "__GLIBCXX__\|_GLIBCXX_HAVE_O_NONBLOCK" | sort); then
 	echo "ERROR: generated c++config.h differs from the toolchain's -- seeds need updating" >&2
 	exit 1
 fi
