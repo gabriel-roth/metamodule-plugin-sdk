@@ -1,4 +1,4 @@
 __pycache__
-examples/*/build
+tests/*/build
 plugin-libc/archive-project/build
 plugin-libc/autotools-build
