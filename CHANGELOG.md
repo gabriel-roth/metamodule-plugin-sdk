@@ -1,5 +1,20 @@
 # Change Log for SDK API
 
+### v2.2.1
+
+- c++ streams (fstream, iostream, sstream, etc) are fully supported in plugins.
+- c++ exceptions (throw, catch, try, etc) are fully supported in plugins.
+- arm gcc toolchain v15.3 is now supported, in addition to v12.2/12.3
+- All libc/libstdc++/etc sources are provided in a .a file. This makes
+  compiling a plugin a little faster, but otherwise doesn't change anything for
+  plugin developers.
+
+Note: Even though support for streams and exceptions adds to the plugin's
+possible functions it can use, the API has not changed since these all run
+completely within the plugin. This means that throwing an exception from a
+plugin cannot be caught by the host firmware -- the plugin must handle the
+exception itself.
+
 ### v2.2.0
 
 - New classes and types (header-only, no API change):
