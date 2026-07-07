@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 #
-# EXPERIMENTAL: build plugin-libc from the real newlib and libstdc++ autotools
-# build systems, instead of the per-file source lists in plugin-libc/*.cmake.
+# Build plugin-libc from the real newlib and libstdc++ autotools build
+# systems, matching the newlib/libstdc++ versions shipped in a supported ARM
+# GNU toolchain release (12.3 or 15.3).
 #
-# Produces plugin-libc/autotools-build/libmetamodule-plugin-libc.a -- a
-# drop-in replacement for the archive in plugin-libc/lib/ (it is NOT
+# Produces plugin-libc/autotools-build/gcc<N>/libmetamodule-plugin-libc-gcc<N>.a
+# -- a drop-in replacement for the archive in plugin-libc/lib/ (it is NOT
 # installed there automatically; test on hardware first, then copy manually).
 #
 # What this does:
-#  1. Downloads newlib-4.3.0.20230120 (the version the ARM 12.3 toolchain
-#     ships) and gcc-12.3.0 (for libstdc++-v3) source tarballs
+#  1. Downloads the newlib source tarball matching the toolchain's newlib
+#     version, and the gcc source tarball matching the toolchain's gcc (for
+#     libstdc++-v3 and the libgcc unwinder sources)
 #  2. Builds newlib with CFLAGS_FOR_TARGET += -fPIC and configure flags that
 #     reproduce the ARM toolchain's configuration exactly (verified by
 #     diffing the generated newlib.h against the toolchain's installed copy)
@@ -17,41 +19,81 @@
 #     --with-pic, using the installed cross compiler. Configure link-tests
 #     are impossible for bare metal (GCC_NO_EXECUTABLES), so the answers are
 #     seeded to match the toolchain's installed c++config.h
-#  4. Compiles the ARM EABI unwinder + glue (same files libgcc.cmake builds)
+#  4. Compiles the ARM EABI unwinder (from the gcc tarball's libgcc/) + glue
 #  5. Removes archive members whose symbols must bind to the firmware at
 #     load time (malloc family, abort, the reentrant _*_r syscalls, init/fini
-#     hooks) -- same set that libc.cmake excludes from the source build
+#     hooks)
 #  6. Replaces libstdc++'s __verbose_terminate_handler (which drags in the
 #     ~100kB demangler) with glue/vterminate_lite.cc
-#  7. Merges everything into one libmetamodule-plugin-libc.a
+#  7. Merges everything into one libmetamodule-plugin-libc-gcc<N>.a
 #
 # Usage:
-#   scripts/build-plugin-libc-autotools.sh [/path/to/arm-gnu-toolchain-12.3/bin]
+#   scripts/build-plugin-libc-autotools.sh [12|15] [/path/to/arm-gnu-toolchain/bin]
+#
+# Arguments may be given in either order. With a bare version number, the
+# arm-none-eabi-gcc found on PATH must be that version. With a toolchain
+# path, the version is detected from it. With no arguments, the PATH
+# toolchain is used and its version detected.
 #
 set -euo pipefail
 
 SDK_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-WORK="$SDK_DIR/plugin-libc/autotools-build"
-NEWLIB_VER=newlib-4.3.0.20230120
-GCC_VER=gcc-12.3.0
-NEWLIB_URL="https://sourceware.org/pub/newlib/${NEWLIB_VER}.tar.gz"
-GCC_URL="https://ftp.gnu.org/gnu/gcc/${GCC_VER}/${GCC_VER}.tar.xz"
+BASE="$SDK_DIR/plugin-libc/autotools-build"
 
-TOOLCHAIN_BASE_DIR="${1:-${TOOLCHAIN_BASE_DIR:-}}"
+##############################################################################
+# Argument parsing: a supported gcc major version and/or a toolchain bin dir
+REQUESTED_VER=""
+TOOLCHAIN_BASE_DIR="${TOOLCHAIN_BASE_DIR:-}"
+for arg in "$@"; do
+	case "$arg" in
+		12|15) REQUESTED_VER="$arg" ;;
+		*)
+			if [ -d "$arg" ]; then
+				TOOLCHAIN_BASE_DIR="$arg"
+			else
+				echo "ERROR: argument '$arg' is neither a supported gcc version (12 or 15) nor a directory" >&2
+				exit 1
+			fi
+			;;
+	esac
+done
+
 if [ -z "$TOOLCHAIN_BASE_DIR" ]; then
 	TOOLCHAIN_BASE_DIR="$(dirname "$(command -v arm-none-eabi-gcc)")"
 fi
 TC="$TOOLCHAIN_BASE_DIR"
 
-# The whole build must use the 12.2/12.3 toolchain. A stray newer
-# arm-none-eabi-gcc on PATH ICEs on libsupc++ (seen with 14.2:
+# The whole build must use the matching toolchain. A mismatched
+# arm-none-eabi-gcc can miscompile or ICE on libsupc++ (seen with 14.2:
 # "internal compiler error: in gimple_build_eh_must_not_throw").
 export PATH="$TC:$PATH"
 GCCVER=$("$TC/arm-none-eabi-gcc" -dumpversion)
 case "$GCCVER" in
-	12.2*|12.3*) ;;
-	*) echo "ERROR: arm-none-eabi-gcc $GCCVER at $TC; need 12.2/12.3" >&2; exit 1 ;;
+	12.2*|12.3*) GCC_MAJOR=12 ;;
+	15.3*)       GCC_MAJOR=15 ;;
+	*) echo "ERROR: arm-none-eabi-gcc $GCCVER at $TC; need 12.2/12.3 or 15.3" >&2; exit 1 ;;
 esac
+if [ -n "$REQUESTED_VER" ] && [ "$REQUESTED_VER" != "$GCC_MAJOR" ]; then
+	echo "ERROR: gcc $REQUESTED_VER requested, but arm-none-eabi-gcc at $TC is $GCCVER." >&2
+	echo "       Pass the path to a gcc $REQUESTED_VER toolchain's bin/ directory." >&2
+	exit 1
+fi
+
+##############################################################################
+# Source versions: newlib matching what the ARM toolchain release ships
+# (check $SYSROOT/include/_newlib_version.h), gcc matching its gcc.
+case "$GCC_MAJOR" in
+	12) NEWLIB_VER=newlib-4.3.0.20230120; GCC_VER=gcc-12.3.0 ;;
+	15) NEWLIB_VER=newlib-4.6.0.20260123; GCC_VER=gcc-15.3.0 ;;
+esac
+NEWLIB_URL="https://sourceware.org/pub/newlib/${NEWLIB_VER}.tar.gz"
+GCC_URL="https://ftp.gnu.org/gnu/gcc/${GCC_VER}/${GCC_VER}.tar.xz"
+
+# Tarballs and extracted source trees are shared (version-named) in $BASE;
+# everything built lives in a per-gcc-version work dir so both archives can
+# be (re)built side by side.
+WORK="$BASE/gcc$GCC_MAJOR"
+OUT_NAME="libmetamodule-plugin-libc-gcc$GCC_MAJOR.a"
 
 TC_SYSROOT="$("$TC/arm-none-eabi-gcc" -print-sysroot)"
 ARCH_FLAGS="-mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard -mthumb-interwork -mno-unaligned-access -mtune=cortex-a7"
@@ -78,38 +120,41 @@ run_make() {
 }
 
 mkdir -p "$WORK"
-cd "$WORK"
 
 # Mirror all stdout/stderr to a logfile. The recursive -j build produces a lot
 # of interleaved output, so when something fails the error scrolls off the
 # terminal -- grep this file (e.g. for 'Error ' or 'error:') to find it.
 BUILD_LOG="$WORK/build.log"
 exec > >(tee "$BUILD_LOG") 2>&1
+echo "==== building with $("$TC/arm-none-eabi-gcc" --version | head -1)"
 echo "==== full build output is being saved to $BUILD_LOG"
 
 ##############################################################################
 echo "==== 1. Sources"
+cd "$BASE"
 [ -f ${NEWLIB_VER}.tar.gz ] || curl -L -o ${NEWLIB_VER}.tar.gz "$NEWLIB_URL"
 [ -f ${GCC_VER}.tar.xz ]    || curl -L -o ${GCC_VER}.tar.xz "$GCC_URL"
 [ -d ${NEWLIB_VER} ] || tar xzf ${NEWLIB_VER}.tar.gz
 # libstdc++-v3 needs these pieces of the gcc tree (but never builds gcc itself):
 [ -d ${GCC_VER} ] || tar xJf ${GCC_VER}.tar.xz \
 	${GCC_VER}/libstdc++-v3 ${GCC_VER}/config ${GCC_VER}/libgcc \
-	${GCC_VER}/libiberty ${GCC_VER}/include \
+	${GCC_VER}/libiberty ${GCC_VER}/include ${GCC_VER}/contrib \
+	${GCC_VER}/libbacktrace \
 	${GCC_VER}/gcc/BASE-VER ${GCC_VER}/gcc/DATESTAMP \
 	${GCC_VER}/config.guess ${GCC_VER}/config.sub ${GCC_VER}/install-sh \
 	${GCC_VER}/ltmain.sh ${GCC_VER}/missing ${GCC_VER}/config-ml.in \
 	${GCC_VER}/depcomp ${GCC_VER}/mkinstalldirs
 
 BUILD_TRIPLET=$(${GCC_VER}/config.guess)
+cd "$WORK"
 
 ##############################################################################
 echo "==== 2. newlib"
-# Configure flags reproduce the ARM GNU toolchain 12.3 newlib configuration
+# Configure flags reproduce the ARM GNU toolchain newlib configuration
 # (validated below by diffing the generated newlib.h).
 mkdir -p build-newlib && cd build-newlib
 if [ ! -f Makefile ]; then
-../${NEWLIB_VER}/configure \
+"$BASE"/${NEWLIB_VER}/configure \
 	--build=$BUILD_TRIPLET --host=$BUILD_TRIPLET --target=arm-none-eabi \
 	--prefix="$WORK/install" \
 	--disable-multilib --disable-nls \
@@ -151,9 +196,20 @@ echo "==== 3. libstdc++"
 # probe sets CXXFLAGS='-O0 -S'), and without -mcpu the probe miscompiles
 # for the default architecture and concludes there are no atomic builtins.
 # This is also how the in-tree multilib build passes arch flags.
+# Extra seeds for probes that only exist in newer libstdc++ versions:
+#  - the chdir/chmod/getcwd/mkdir link-tests fail on bare metal (the ARM
+#    toolchain's c++config.h has them undefined)
+#  - std::stacktrace support (in libstdc++exp.a, not merged into our archive)
+#    is enabled in the ARM toolchain, and must match in c++config.h
+EXTRA_LIBSTDCXX_ARGS=""
+if [ "$GCC_MAJOR" -ge 15 ]; then
+	EXTRA_LIBSTDCXX_ARGS="--enable-libstdcxx-backtrace=yes
+		glibcxx_cv_chdir=no glibcxx_cv_chmod=no
+		glibcxx_cv_getcwd=no glibcxx_cv_mkdir=no"
+fi
 mkdir -p build-libstdcxx && cd build-libstdcxx
 if [ ! -f Makefile ]; then
-../${GCC_VER}/libstdc++-v3/configure \
+"$BASE"/${GCC_VER}/libstdc++-v3/configure \
 	--host=arm-none-eabi --build=$BUILD_TRIPLET \
 	--prefix="$WORK/install" \
 	--disable-shared --disable-multilib --disable-nls \
@@ -170,17 +226,29 @@ if [ ! -f Makefile ]; then
 	glibcxx_cv_openat=no glibcxx_cv_unlinkat=no \
 	glibcxx_cv_readlink=no glibcxx_cv_symlink=no \
 	glibcxx_cv_fchmod=no glibcxx_cv_fchmodat=no \
+	$EXTRA_LIBSTDCXX_ARGS \
 	CC="$TC/arm-none-eabi-gcc $ARCH_FLAGS -fPIC" \
 	CXX="$TC/arm-none-eabi-g++ $ARCH_FLAGS -fPIC" \
 	CFLAGS="-ffunction-sections -fdata-sections -O2 -g" \
 	CXXFLAGS="-ffunction-sections -fdata-sections -O2 -g"
+
+# The complex.h inverse-trig probe (gcc >= 15) is not a cache variable, so it
+# cannot be seeded. It fails here only because the standalone probe resolves
+# #include <complex.h> to the *installed* toolchain's C++ <complex.h> wrapper
+# (which does not declare cacosf & co.), whereas the in-tree toolchain build
+# resolved it to newlib's C header (which does; newlib's libm provides them).
+# Fix up config.h to match the toolchain; the c++config.h verification below
+# guards this.
+if grep -q '/\* #undef _GLIBCXX_USE_C99_COMPLEX_ARC \*/' config.h; then
+	sed -i.bak 's,/\* #undef _GLIBCXX_USE_C99_COMPLEX_ARC \*/,#define _GLIBCXX_USE_C99_COMPLEX_ARC 1,' config.h
+fi
 fi
 run_make
 cd "$WORK"
 
 echo "==== 3a. verify c++config.h matches the toolchain's"
-# Everything except the __GLIBCXX__ datestamp (12.3.0 release vs the
-# toolchain's 12.3.1 branch snapshot) must be identical, otherwise the
+# Everything except the __GLIBCXX__ datestamp (the .0 release vs the
+# toolchain's .1 branch snapshot) must be identical, otherwise the
 # archive's internals disagree with the headers plugins compile against.
 # (This catches, e.g., std::random_device referencing getentropy that the
 # firmware does not provide.)
@@ -195,16 +263,21 @@ fi
 echo "c++config.h: OK (identical configuration)"
 
 ##############################################################################
-echo "==== 4. unwinder + glue objects (same sources libgcc.cmake compiles)"
+echo "==== 4. unwinder + glue objects"
+# The ARM EABI unwinder sources come from the gcc tarball's libgcc/ (the
+# file list matches what libgcc's t-bpabi puts in LIB2ADDEH for arm-none-eabi
+# targets). glue/ carries stubs for headers normally generated by the libgcc
+# build system (tconfig.h, tsystem.h, auto-target.h).
 PL="$SDK_DIR/plugin-libc"
+LIBGCC_SRC="$BASE/$GCC_VER/libgcc"
 mkdir -p glue-obj && cd glue-obj
 CC="$TC/arm-none-eabi-gcc"
 CXX="$TC/arm-none-eabi-g++"
-GLUE_INC="-I$PL/glue -I$PL/libgcc"
+GLUE_INC="-I$PL/glue -I$LIBGCC_SRC"
 $CC  $ARCH_FLAGS $PIC_FLAGS $GLUE_INC -fexceptions -fnon-call-exceptions -Wno-address -fvisibility=hidden -c "$PL/glue/unwind-arm.c" -o unwind-arm.o
-$CC  $ARCH_FLAGS $PIC_FLAGS $GLUE_INC -c "$PL/libgcc/config/arm/libunwind.S" -o libunwind.o
-$CC  $ARCH_FLAGS $PIC_FLAGS $GLUE_INC -fexceptions -fnon-call-exceptions -fvisibility=hidden -c "$PL/libgcc/config/arm/pr-support.c" -o pr-support.o
-$CC  $ARCH_FLAGS $PIC_FLAGS $GLUE_INC -fexceptions -fnon-call-exceptions -fvisibility=hidden -c "$PL/libgcc/unwind-c.c" -o unwind-c.o
+$CC  $ARCH_FLAGS $PIC_FLAGS $GLUE_INC -c "$LIBGCC_SRC/config/arm/libunwind.S" -o libunwind.o
+$CC  $ARCH_FLAGS $PIC_FLAGS $GLUE_INC -fexceptions -fnon-call-exceptions -fvisibility=hidden -c "$LIBGCC_SRC/config/arm/pr-support.c" -o pr-support.o
+$CC  $ARCH_FLAGS $PIC_FLAGS $GLUE_INC -fexceptions -fnon-call-exceptions -fvisibility=hidden -c "$LIBGCC_SRC/unwind-c.c" -o unwind-c.o
 $CXX $ARCH_FLAGS $PIC_FLAGS -fvisibility=hidden -c "$PL/glue/vterminate_lite.cc" -o vterminate_lite.o
 $CC  $ARCH_FLAGS $PIC_FLAGS -c "$PL/dso_handle.c" -o dso_handle.o
 cd "$WORK"
@@ -218,12 +291,26 @@ cp build-newlib/arm-none-eabi/newlib/libc.a libc-plugin.a
 cp build-newlib/arm-none-eabi/newlib/libm.a libm-plugin.a
 cp build-libstdcxx/src/.libs/libstdc++.a libstdc++-plugin.a
 
+# Delete archive members by name, erroring if any expected member is absent
+# (a rename in a new newlib/libstdc++ version must be noticed, not skipped).
+delete_members() {
+	local archive="$1"; shift
+	local member
+	for member in "$@"; do
+		if ! $AR t "$archive" | grep -qx "$member"; then
+			echo "ERROR: expected member $member not found in $archive -- member list needs updating" >&2
+			exit 1
+		fi
+	done
+	$AR d "$archive" "$@"
+}
+
 # Symbols that must resolve to the firmware at load time: delete the newlib
-# members that define them (mirrors the exclusions in libc.cmake).
+# members that define them.
 #  - malloc family + abort: firmware's heap/abort
 #  - _*_r reentrant syscalls: exported by the firmware (see api-symbols.txt)
 #  - init/fini/__call_atexit: the plugin loader runs .init_array itself
-$AR d libc-plugin.a \
+delete_members libc-plugin.a \
 	libc_a-malloc.o libc_a-mallocr.o libc_a-calloc.o libc_a-callocr.o \
 	libc_a-realloc.o libc_a-reallocr.o libc_a-freer.o \
 	libc_a-malign.o libc_a-malignr.o libc_a-msize.o \
@@ -234,13 +321,13 @@ $AR d libc-plugin.a \
 	libc_a-sbrkr.o libc_a-signalr.o libc_a-timesr.o libc_a-writer.o
 
 # Use the lightweight verbose terminate handler instead of the demangler
-$AR d libstdc++-plugin.a vterminate.o cp-demangle.o
+delete_members libstdc++-plugin.a vterminate.o cp-demangle.o
 
 ##############################################################################
-echo "==== 6. merge into libmetamodule-plugin-libc.a"
-rm -f libmetamodule-plugin-libc.a
+echo "==== 6. merge into $OUT_NAME"
+rm -f "$OUT_NAME"
 $AR -M <<MRI
-CREATE libmetamodule-plugin-libc.a
+CREATE $OUT_NAME
 ADDLIB libstdc++-plugin.a
 ADDLIB libc-plugin.a
 ADDLIB libm-plugin.a
@@ -253,10 +340,11 @@ ADDMOD glue-obj/dso_handle.o
 SAVE
 END
 MRI
-"$TC/arm-none-eabi-strip" -g libmetamodule-plugin-libc.a
-$RANLIB libmetamodule-plugin-libc.a
+"$TC/arm-none-eabi-strip" -g "$OUT_NAME"
+$RANLIB "$OUT_NAME"
 
-ls -lh "$WORK/libmetamodule-plugin-libc.a"
+ls -lh "$WORK/$OUT_NAME"
 echo ""
-echo "Done. To test it, replace plugin-libc/lib/libmetamodule-plugin-libc.a"
-echo "with $WORK/libmetamodule-plugin-libc.a and rebuild a plugin."
+echo "Done. To test it, copy it into plugin-libc/lib/:"
+echo "  cp $WORK/$OUT_NAME $SDK_DIR/plugin-libc/lib/$OUT_NAME"
+echo "and rebuild a plugin with the gcc $GCC_MAJOR toolchain."

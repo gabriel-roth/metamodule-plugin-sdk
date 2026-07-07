@@ -4,12 +4,17 @@ project(MetaModulePluginSDK LANGUAGES C CXX ASM)
 
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/version.cmake)
 
-# Check ARM GCC toolchain version compatibility
+# Check ARM GCC toolchain version compatibility. Each supported major version
+# has a matching prebuilt plugin-libc archive in plugin-libc/lib/.
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    if(NOT (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "12.2.0" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "12.4.0"))
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "12.2.0" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "12.4.0")
+        set(METAMODULE_LIBC_GCC_MAJOR 12)
+    elseif(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "15.3.0" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "15.4.0")
+        set(METAMODULE_LIBC_GCC_MAJOR 15)
+    else()
         message(FATAL_ERROR
             " ARM GCC ${CMAKE_CXX_COMPILER_VERSION} is not supported."
-            " The MetaModule Plugin SDK requires ARM GNU Toolchain 12.2 or 12.3.\n"
+            " The MetaModule Plugin SDK requires ARM GNU Toolchain 12.2, 12.3, or 15.3.\n"
             " Download the correct version from:\n"
             "   https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads\n"
             " Specify the toolchain path with:\n"
@@ -131,21 +136,14 @@ function(create_plugin)
         ${ARCH_MP15x_A7_FLAGS}
     )
 
-    # libc/libm/libstdc++/libsupc++/unwinder, compiled -fPIC. Either the
-    # prebuilt archive shipped with the SDK (default) or the one compiled from
-    # source (-DMETAMODULE_BUILD_LIBC_FROM_SOURCE=ON).
-    if (METAMODULE_BUILD_LIBC_FROM_SOURCE)
-        set(LIBC_ARCHIVE $<TARGET_FILE:metamodule-plugin-libc>)
-        set(LIBC_DEPENDS metamodule-plugin-libc)
-    else()
-        set(LIBC_ARCHIVE ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/plugin-libc/lib/libmetamodule-plugin-libc.a)
-        if (NOT EXISTS ${LIBC_ARCHIVE})
-            message(FATAL_ERROR "Prebuilt plugin-libc archive not found: ${LIBC_ARCHIVE}\n"
-                " Either configure with -DMETAMODULE_BUILD_LIBC_FROM_SOURCE=ON,"
-                " or regenerate the archive with scripts/build-plugin-libc.sh")
-        endif()
-        set(LIBC_DEPENDS ${LIBC_ARCHIVE})
+    # libc/libm/libstdc++/libsupc++/unwinder, compiled -fPIC: the prebuilt
+    # archive shipped with the SDK that matches the toolchain's gcc version.
+    set(LIBC_ARCHIVE ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/plugin-libc/lib/libmetamodule-plugin-libc-gcc${METAMODULE_LIBC_GCC_MAJOR}.a)
+    if (NOT EXISTS ${LIBC_ARCHIVE})
+        message(FATAL_ERROR "Prebuilt plugin-libc archive not found: ${LIBC_ARCHIVE}\n"
+            " Regenerate it with scripts/build-plugin-libc-autotools.sh")
     endif()
+    set(LIBC_DEPENDS ${LIBC_ARCHIVE})
 
     # Get objects of linked libraries, except those we know about
     get_target_property(DEP_LIBS ${LIB_NAME} LINK_LIBRARIES)

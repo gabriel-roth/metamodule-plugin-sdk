@@ -11,7 +11,7 @@
  * whenever the unwinder is used at all.
  */
 
-#include "../libgcc/config/arm/unwind-arm.c"
+#include "config/arm/unwind-arm.c"
 
 /* Each plugin carries its own unwinder and its own exception index table
  * (the linker defines __exidx_start/__exidx_end around the .so's own

@@ -10,7 +10,7 @@ For example projects using this SDK, see [metamodule-plugin-examples](https://gi
 
   - cmake v3.22 or later
   - ninja (not required if you configure cmake to use a different generator) 
-  - arm-none-eabi-gcc toolchain 12.2 or 12.3
+  - arm-none-eabi-gcc toolchain 12.2, 12.3, or 15.3
   - python 3.6 or later
   - Optional (recommended): jq (for validating plugin-mm.json file)
 
@@ -135,7 +135,7 @@ cmake --build build
 ```
 
 
-You must have the `arm-none-eabi-gcc` toolchain v12 on your PATH. Or, you can
+You must have a supported `arm-none-eabi-gcc` toolchain (v12.2, v12.3, or v15.3) on your PATH. Or, you can
 specify the path to it with the Cmake variable `TOOLCHAIN_BASE_DIR`:
 
 
