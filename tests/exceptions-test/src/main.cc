@@ -211,6 +211,9 @@ int run_oom_tests() {
 		bool ok = false;
 		try {
 			auto *p = new char[huge];
+			// Defeat allocation elision: with no observable use of p, GCC
+			// removes the new/delete pair entirely and nothing ever throws
+			asm volatile("" : : "r"(p) : "memory");
 			delete[] p;
 		} catch (std::bad_alloc &) {
 			ok = true;
@@ -342,18 +345,26 @@ int run_stream_tests() {
 
 	{
 		// Filesystem may not be writable from a plugin's working directory;
-		// pass if the file round-trips or if the open fails cleanly.
+		// pass if the file round-trips or if the open fails cleanly. Report
+		// which stage failed: a read-back-open failure after a successful
+		// write+close has been observed when running from module-creation
+		// context (vs plugin load) and is a host fs question, not a streams
+		// problem.
 		std::ofstream out{"usb:/exc-test-scratch.txt"};
 		if (out.is_open()) {
 			out << "roundtrip " << 99;
 			out.close();
 			std::ifstream in{"usb:/exc-test-scratch.txt"};
-			std::string word;
-			int num{};
-			in >> word >> num;
-			// note: the scratch file is left behind; the host does not
-			// provide an unlink/remove syscall
-			check(word == "roundtrip" && num == 99, "fstream write/read round-trip");
+			if (in.is_open()) {
+				std::string word;
+				int num{};
+				in >> word >> num;
+				// note: the scratch file is left behind; the host does not
+				// provide an unlink/remove syscall
+				check(word == "roundtrip" && num == 99, "fstream write/read round-trip");
+			} else {
+				check(false, "read-back open after write+close");
+			}
 		} else {
 			printf("[stream-test] (fs not writable, skipping fstream round-trip)\n");
 			check(true, "ofstream unwritable fails cleanly");
