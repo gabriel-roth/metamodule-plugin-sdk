@@ -11,6 +11,16 @@
 			"slug": "ExcTest",
 			"name": "Exceptions Test",
 			"description": "Runs throw/catch tests when loaded"
+		},
+		{
+			"slug": "ExcTestThrowFatal",
+			"name": "Uncaught Throw Test (halts!)",
+			"description": "Throws an uncaught exception from its constructor: creating it kills the plugin"
+		},
+		{
+			"slug": "ExcTestOomFatal",
+			"name": "Uncaught OOM Test (halts!)",
+			"description": "Allocates until out-of-memory without catching bad_alloc: creating it kills the plugin"
 		}
 	]
 }

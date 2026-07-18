@@ -10,9 +10,11 @@
 #include "CoreModules/elements/element_info.hh"
 #include "CoreModules/register_module.hh"
 
+#include <array>
 #include <cstdio>
 #include <exception>
 #include <fstream>
+#include <new>
 #include <iomanip>
 #include <iostream>
 #include <memory>
@@ -188,6 +190,84 @@ int run_exception_tests() {
 	return failed ? -failed : passed;
 }
 
+int run_oom_tests() {
+	int passed = 0;
+	int failed = 0;
+	auto check = [&](bool ok, const char *name) {
+		printf("[oom-test] %-32s %s\n", name, ok ? "PASS" : "FAIL");
+		ok ? passed++ : failed++;
+	};
+
+	constexpr size_t huge = size_t{1} << 30; // 1 GB: larger than any possible heap
+
+	{
+		auto *p = new (std::nothrow) char[huge];
+		check(p == nullptr, "nothrow new returns nullptr");
+		delete[] p;
+	}
+
+	{
+		// A single unservable request throws without draining the heap first
+		bool ok = false;
+		try {
+			auto *p = new char[huge];
+			delete[] p;
+		} catch (std::bad_alloc &) {
+			ok = true;
+		}
+		check(ok, "huge new throws bad_alloc");
+	}
+
+	{
+		bool ok = false;
+		try {
+			std::vector<char> v;
+			v.resize(huge);
+		} catch (std::bad_alloc &) {
+			ok = true;
+		}
+		check(ok, "vector resize throws bad_alloc");
+	}
+
+	{
+		// The UnfilteredVolume1 pattern: creep up in big steps until the heap
+		// is exhausted, then recover. Throwing while the heap is genuinely full
+		// also exerces __cxa_allocate_exception's emergency pool.
+		// CAUTION: between the last successful chunk and the frees below, the
+		// heap is transiently empty; an unlucky concurrent allocation elsewhere
+		// in the firmware will fail during that window.
+		constexpr size_t chunk_size = 16 * 1024 * 1024;
+		std::array<char *, 64> chunks{};
+		size_t n = 0;
+		bool threw = false;
+		try {
+			for (; n < chunks.size(); n++)
+				chunks[n] = new char[chunk_size];
+		} catch (std::bad_alloc &) {
+			threw = true;
+		}
+		printf("[oom-test] (allocated %zu chunks of %zu MB before bad_alloc)\n", n, chunk_size / (1024 * 1024));
+		for (auto *p : chunks)
+			delete[] p;
+		check(threw, "allocating until exhaustion throws");
+
+		// The heap must still be fully usable after being run dry
+		bool ok = false;
+		try {
+			auto *p = new char[chunk_size];
+			p[0] = 1;
+			p[chunk_size - 1] = 2;
+			ok = (p[0] == 1 && p[chunk_size - 1] == 2);
+			delete[] p;
+		} catch (std::bad_alloc &) {
+		}
+		check(ok, "heap usable after exhaustion");
+	}
+
+	printf("[oom-test] %d passed, %d failed\n", passed, failed);
+	return failed ? -failed : passed;
+}
+
 int run_stream_tests() {
 	int passed = 0;
 	int failed = 0;
@@ -302,10 +382,11 @@ int run_stream_tests() {
 
 int run_all_tests() {
 	int exc = run_exception_tests();
+	int oom = run_oom_tests();
 	int strm = run_stream_tests();
-	if (exc < 0 || strm < 0)
-		return (exc < 0 ? exc : 0) + (strm < 0 ? strm : 0);
-	return exc + strm;
+	if (exc < 0 || oom < 0 || strm < 0)
+		return (exc < 0 ? exc : 0) + (oom < 0 ? oom : 0) + (strm < 0 ? strm : 0);
+	return exc + oom + strm;
 }
 
 class ExcTestCore : public CoreProcessor {
@@ -338,10 +419,54 @@ struct ExcTestInfo : MetaModule::ModuleInfoBase {
 	static constexpr std::string_view png_filename{"exceptions-test/panel.png"};
 };
 
+// The two modules below are deliberately destructive: creating one exercises
+// the firmware's handling of a plugin that dies. They do nothing at plugin
+// load; add them from the GUI to trigger the failure on demand.
+
+// Uncaught throw from a module constructor: unwinds out of all plugin frames,
+// hits the firmware caller (no unwind tables visible to the plugin's
+// unwinder), so the plugin's std::terminate runs and calls the host's abort().
+class ThrowFatalCore : public ExcTestCore {
+public:
+	ThrowFatalCore() {
+		printf("[exc-test] FATAL module created: throwing uncaught exception now\n");
+		throw TestError{"deliberately uncaught"};
+	}
+};
+
+// Uncaught bad_alloc from OOM in a module constructor: the UnfilteredVolume1
+// failure replicated exactly -- allocate in big steps until the heap (or
+// plugin arena) is exhausted, never catch.
+class OomFatalCore : public ExcTestCore {
+public:
+	OomFatalCore() {
+		printf("[exc-test] FATAL module created: allocating until OOM, not catching\n");
+		std::vector<std::unique_ptr<char[]>> hoard;
+		while (true)
+			hoard.emplace_back(new char[2 * 1024 * 1024]);
+	}
+};
+
+struct ThrowFatalInfo : MetaModule::ModuleInfoBase {
+	static constexpr std::string_view slug{"ExcTestThrowFatal"};
+	static constexpr std::string_view description{"Uncaught Throw Test (halts!)"};
+	static constexpr uint32_t width_hp = 4;
+	static constexpr std::string_view png_filename{"exceptions-test/panel.png"};
+};
+
+struct OomFatalInfo : MetaModule::ModuleInfoBase {
+	static constexpr std::string_view slug{"ExcTestOomFatal"};
+	static constexpr std::string_view description{"Uncaught OOM Test (halts!)"};
+	static constexpr uint32_t width_hp = 4;
+	static constexpr std::string_view png_filename{"exceptions-test/panel.png"};
+};
+
 } // namespace
 
 extern "C" __attribute__((visibility("default"))) void init() {
 	printf("[exc-test] plugin loaded: running exception + stream tests\n");
 	run_all_tests();
 	MetaModule::register_module<ExcTestCore, ExcTestInfo>("ExceptionsTest");
+	MetaModule::register_module<ThrowFatalCore, ThrowFatalInfo>("ExceptionsTest");
+	MetaModule::register_module<OomFatalCore, OomFatalInfo>("ExceptionsTest");
 }

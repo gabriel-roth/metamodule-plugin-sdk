@@ -7,6 +7,14 @@
 		{
 			"slug": "ExcTest",
 			"name": "Exceptions Test"
+		},
+		{
+			"slug": "ExcTestThrowFatal",
+			"name": "Uncaught Throw Test (halts!)"
+		},
+		{
+			"slug": "ExcTestOomFatal",
+			"name": "Uncaught OOM Test (halts!)"
 		}
 	]
 }
