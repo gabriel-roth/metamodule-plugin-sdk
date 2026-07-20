@@ -12,6 +12,7 @@
 
 #include <array>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <fstream>
 #include <new>
@@ -199,6 +200,24 @@ int run_oom_tests() {
 	};
 
 	constexpr size_t huge = size_t{1} << 30; // 1 GB: larger than any possible heap
+
+	{
+		// malloc/new must honor the platform ABI contract (max_align_t = 8 on
+		// arm32): GCC emits NEON stores with :64 alignment hints for buffers
+		// it knows came from malloc, which trap on less-aligned addresses.
+		// (Regression test: the arena's TLSF originally returned 4-aligned.)
+		constexpr size_t need = alignof(std::max_align_t);
+		bool ok = true;
+		for (size_t sz : {1u, 2u, 3u, 5u, 8u, 13u, 20u, 100u, 1000u, 4097u}) {
+			void *m = std::malloc(sz);
+			auto *n = new char[sz];
+			if (reinterpret_cast<uintptr_t>(m) % need || reinterpret_cast<uintptr_t>(n) % need)
+				ok = false;
+			std::free(m);
+			delete[] n;
+		}
+		check(ok, "malloc/new 8-byte aligned");
+	}
 
 	{
 		auto *p = new (std::nothrow) char[huge];
