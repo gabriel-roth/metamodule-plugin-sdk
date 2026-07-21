@@ -477,6 +477,25 @@ public:
 	}
 };
 
+// Direct abort() from a module constructor: no exception involved, so this
+// can never propagate across the boundary -- it exercises the host's
+// abort-rescue (longjmp) fallback path, which is also what old-SDK plugins
+// and terminate-without-throw deaths rely on.
+class AbortFatalCore : public ExcTestCore {
+public:
+	AbortFatalCore() {
+		printf("[exc-test] FATAL module created: calling abort() now\n");
+		abort();
+	}
+};
+
+struct AbortFatalInfo : MetaModule::ModuleInfoBase {
+	static constexpr std::string_view slug{"ExcTestAbortFatal"};
+	static constexpr std::string_view description{"Direct abort() Test (halts!)"};
+	static constexpr uint32_t width_hp = 4;
+	static constexpr std::string_view png_filename{"exceptions-test/panel.png"};
+};
+
 struct ThrowFatalInfo : MetaModule::ModuleInfoBase {
 	static constexpr std::string_view slug{"ExcTestThrowFatal"};
 	static constexpr std::string_view description{"Uncaught Throw Test (halts!)"};
@@ -499,4 +518,5 @@ extern "C" __attribute__((visibility("default"))) void init() {
 	MetaModule::register_module<ExcTestCore, ExcTestInfo>("ExceptionsTest");
 	MetaModule::register_module<ThrowFatalCore, ThrowFatalInfo>("ExceptionsTest");
 	MetaModule::register_module<OomFatalCore, OomFatalInfo>("ExceptionsTest");
+	MetaModule::register_module<AbortFatalCore, AbortFatalInfo>("ExceptionsTest");
 }

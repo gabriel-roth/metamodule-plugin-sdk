@@ -15,6 +15,10 @@
 		{
 			"slug": "ExcTestOomFatal",
 			"name": "Uncaught OOM Test (halts!)"
+		},
+		{
+			"slug": "ExcTestAbortFatal",
+			"name": "Direct abort() Test (halts!)"
 		}
 	]
 }
