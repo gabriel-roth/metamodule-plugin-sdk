@@ -1336,7 +1336,6 @@ __assert_func
 __atexit
 __atexit_recursive_mutex
 __cxa_pure_virtual
-__gnu_Unwind_Find_exidx
 _calloc_r
 _close_r
 _empty_func_stub
@@ -1639,6 +1638,7 @@ linear_set_converter
 log1pl
 malloc
 memalign
+mm_host_find_exidx
 nvgAddFallbackFont
 nvgAddFallbackFontId
 nvgAlpha

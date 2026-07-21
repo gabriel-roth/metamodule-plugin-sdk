@@ -109,6 +109,10 @@ function(create_plugin)
     set(VERSION_FILE ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/version.cc)
     target_sources(${LIB_NAME} PRIVATE ${VERSION_FILE})
 
+    # Route the plugin's exception unwinder to the host's unified exidx
+    # lookup, so exceptions can unwind across the plugin/host boundary
+    target_sources(${LIB_NAME} PRIVATE ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/unwind_exidx.c)
+
     target_compile_definitions(${LIB_NAME} PRIVATE METAMODULE)
     target_compile_options(${LIB_NAME} PRIVATE 
         -fvisibility=hidden
