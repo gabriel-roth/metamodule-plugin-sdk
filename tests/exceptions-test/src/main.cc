@@ -15,10 +15,10 @@
 #include <cstdlib>
 #include <exception>
 #include <fstream>
-#include <new>
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <new>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -95,7 +95,7 @@ int run_exception_tests() {
 		bool ok = false;
 		std::vector<int> v{1, 2, 3};
 		try {
-			[[maybe_unused]] auto _ =v.at(99);
+			[[maybe_unused]] auto _ = v.at(99);
 		} catch (std::out_of_range &) {
 			ok = true;
 		}
@@ -446,7 +446,7 @@ struct ExcTestInfo : MetaModule::ModuleInfoBase {
 	static constexpr std::string_view slug{"ExcTest"};
 	static constexpr std::string_view description{"C++ Exceptions Test"};
 	static constexpr uint32_t width_hp = 4;
-	static constexpr std::string_view png_filename{"exceptions-test/panel.png"};
+	static constexpr std::string_view png_filename{"ExceptionsTest/panel.png"};
 };
 
 // The two modules below are deliberately destructive: creating one exercises
@@ -493,21 +493,21 @@ struct AbortFatalInfo : MetaModule::ModuleInfoBase {
 	static constexpr std::string_view slug{"ExcTestAbortFatal"};
 	static constexpr std::string_view description{"Direct abort() Test (halts!)"};
 	static constexpr uint32_t width_hp = 4;
-	static constexpr std::string_view png_filename{"exceptions-test/panel.png"};
+	static constexpr std::string_view png_filename{"ExceptionsTest/panel.png"};
 };
 
 struct ThrowFatalInfo : MetaModule::ModuleInfoBase {
 	static constexpr std::string_view slug{"ExcTestThrowFatal"};
 	static constexpr std::string_view description{"Uncaught Throw Test (halts!)"};
 	static constexpr uint32_t width_hp = 4;
-	static constexpr std::string_view png_filename{"exceptions-test/panel.png"};
+	static constexpr std::string_view png_filename{"ExceptionsTest/panel.png"};
 };
 
 struct OomFatalInfo : MetaModule::ModuleInfoBase {
 	static constexpr std::string_view slug{"ExcTestOomFatal"};
 	static constexpr std::string_view description{"Uncaught OOM Test (halts!)"};
 	static constexpr uint32_t width_hp = 4;
-	static constexpr std::string_view png_filename{"exceptions-test/panel.png"};
+	static constexpr std::string_view png_filename{"ExceptionsTest/panel.png"};
 };
 
 } // namespace
