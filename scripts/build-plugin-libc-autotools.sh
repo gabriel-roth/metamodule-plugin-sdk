@@ -305,6 +305,10 @@ $CC  $ARCH_FLAGS $PIC_FLAGS $GLUE_INC -fexceptions -fnon-call-exceptions -fvisib
 $CC  $ARCH_FLAGS $PIC_FLAGS $GLUE_INC -fexceptions -fnon-call-exceptions -fvisibility=hidden -c "$LIBGCC_SRC/unwind-c.c" -o unwind-c.o
 $CXX $ARCH_FLAGS $PIC_FLAGS -fvisibility=hidden -c "$PL/glue/vterminate_lite.cc" -o vterminate_lite.o
 $CC  $ARCH_FLAGS $PIC_FLAGS -c "$PL/dso_handle.c" -o dso_handle.o
+# POSIX basename() (libgen.h): lives in newlib's libc/unix/, which ARM's
+# newlib configuration does not build, so it never lands in libc.a. Plugins
+# use it, so compile it straight from the newlib source tree.
+$CC  $ARCH_FLAGS $PIC_FLAGS -c "$BASE/$NEWLIB_VER/newlib/libc/unix/basename.c" -o basename.o
 cd "$WORK"
 
 ##############################################################################
@@ -335,7 +339,11 @@ delete_members() {
 #  - malloc family + abort: firmware's heap/abort
 #  - _*_r reentrant syscalls: exported by the firmware (see api-symbols.txt)
 #  - init/fini/__call_atexit: the plugin loader runs .init_array itself
+#  - stat: the firmware exports stat() but not _stat/_stat_r, so newlib's
+#    sysstat.o/statr.o wrapper chain (stat -> _stat_r -> _stat) would shadow
+#    the firmware's stat and leave _stat unresolvable
 delete_members libc-plugin.a \
+	libc_a-sysstat.o libc_a-statr.o \
 	libc_a-malloc.o libc_a-mallocr.o libc_a-calloc.o libc_a-callocr.o \
 	libc_a-realloc.o libc_a-reallocr.o libc_a-freer.o \
 	libc_a-malign.o libc_a-malignr.o libc_a-msize.o \
@@ -362,6 +370,7 @@ ADDMOD glue-obj/pr-support.o
 ADDMOD glue-obj/unwind-c.o
 ADDMOD glue-obj/vterminate_lite.o
 ADDMOD glue-obj/dso_handle.o
+ADDMOD glue-obj/basename.o
 SAVE
 END
 MRI

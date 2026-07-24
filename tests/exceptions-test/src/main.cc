@@ -13,6 +13,8 @@
 #include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <libgen.h>
+#include <sys/stat.h>
 #include <exception>
 #include <fstream>
 #include <iomanip>
@@ -410,13 +412,46 @@ int run_stream_tests() {
 	return failed ? -failed : passed;
 }
 
+int run_libc_tests() {
+	int passed = 0;
+	int failed = 0;
+	auto check = [&](bool ok, const char *name) {
+		printf("[libc-test] %-32s %s\n", name, ok ? "PASS" : "FAIL");
+		ok ? passed++ : failed++;
+	};
+
+	{
+		// POSIX basename() (libgen.h) lives in newlib's libc/unix/, which ARM
+		// toolchain builds exclude, so plugin-libc carries its own copy.
+		// (Regression test: linking it went missing in the autotools rebuild.)
+		char a[] = "/some/dir/file.txt";
+		char b[] = "trailing/";
+		check(std::string_view{basename(a)} == "file.txt" && std::string_view{basename(b)} == "trailing" &&
+				  std::string_view{basename(nullptr)} == ".",
+			  "basename");
+	}
+
+	{
+		// stat() must bind to the firmware's export; newlib's syscall wrapper
+		// chains to _stat_r/_stat which nothing provides, so plugin-libc must
+		// not carry it. (Regression test: it crept back in the autotools
+		// rebuild, breaking linking for any plugin that calls stat().)
+		struct stat st{};
+		check(stat("nonexistent-file-xyz.txt", &st) != 0, "stat missing file returns error");
+	}
+
+	printf("[libc-test] %d passed, %d failed\n", passed, failed);
+	return failed ? -failed : passed;
+}
+
 int run_all_tests() {
 	int exc = run_exception_tests();
 	int oom = run_oom_tests();
 	int strm = run_stream_tests();
-	if (exc < 0 || oom < 0 || strm < 0)
-		return (exc < 0 ? exc : 0) + (oom < 0 ? oom : 0) + (strm < 0 ? strm : 0);
-	return exc + oom + strm;
+	int libc = run_libc_tests();
+	if (exc < 0 || oom < 0 || strm < 0 || libc < 0)
+		return (exc < 0 ? exc : 0) + (oom < 0 ? oom : 0) + (strm < 0 ? strm : 0) + (libc < 0 ? libc : 0);
+	return exc + oom + strm + libc;
 }
 
 class ExcTestCore : public CoreProcessor {
