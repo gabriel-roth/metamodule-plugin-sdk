@@ -10,7 +10,9 @@ For example projects using this SDK, see [metamodule-plugin-examples](https://gi
 
   - cmake v3.22 or later
   - ninja (not required if you configure cmake to use a different generator) 
-  - arm-none-eabi-gcc toolchain 12.2 or 12.3
+  - arm-none-eabi-gcc toolchain 12.2, 12.3, or 15.3. Toolchains 13.2, 13.3,
+    14.2, 14.3, and 15.2 also work if you first generate the matching
+    plugin-libc archive with `scripts/build-plugin-libc-autotools.sh`
   - python 3.6 or later
   - Optional (recommended): jq (for validating plugin-mm.json file)
 
@@ -135,8 +137,14 @@ cmake --build build
 ```
 
 
-You must have the `arm-none-eabi-gcc` toolchain v12 on your PATH. Or, you can
-specify the path to it with the Cmake variable `TOOLCHAIN_BASE_DIR`:
+You must have a supported `arm-none-eabi-gcc` toolchain (v12.2, v12.3, or
+v15.3) on your PATH. You can also use v13.2, v13.3, v14.2, v14.3, and v15.2 if
+you first generate the matching plugin-libc archive with
+`scripts/build-plugin-libc-autotools.sh` (the SDK only ships prebuilt archives
+for the v12 and v15.3 toolchains). See [plugin-libc README](plugin-libc/README.md).
+
+You also can specify the path to the toolchain with the Cmake
+variable `TOOLCHAIN_BASE_DIR`:
 
 
 ```bash
@@ -147,9 +155,10 @@ Note: for Windows/msys, use `-G "MSYS Makefiles"` instead of `-G Ninja`
 
 ## Path to the SDK
 
-In the example CMakeLists.txt file above, the path the SDK was hard-set. While this will work, it's not a good idea. 
-If you ever want to run your plugin in the simulator, it will fail since the simulator needs to specify it's own "simulator SDK"
-in place of the normal SDK.
+In the example CMakeLists.txt file above, the path the SDK was hard-set. While
+this will work, it's not a good idea. If you ever want to run your plugin in
+the simulator, it will fail since the simulator needs to specify it's own
+"simulator SDK" in place of the normal SDK.
 
 So, the best practice is to copy/paste some boilerplate into your CMakeLists file.
 Replace the `include(../metamodule-plugin-sdk/plugin.cmake)` line in the example code with this:
@@ -213,8 +222,6 @@ Note: for Windows/msys, use `-G "MSYS Makefiles"` instead of `-G Ninja` in the a
 
 In short:
 
-- No stringstream, fstream, ofstream, iostream, etc.
-- No C++ exceptions (no try/catch, no throw)
 - No expander modules
 - No support for loading or rendering SVGs (via nanoSvg)
 - Param, Jack, and Light widgets are drawn with the MetaModule engine, not with nanovg. Children of these widgets are ignored.

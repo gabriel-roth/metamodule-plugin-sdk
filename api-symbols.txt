@@ -1639,6 +1639,7 @@ linear_set_converter
 log1pl
 malloc
 memalign
+mm_host_find_exidx
 nvgAddFallbackFont
 nvgAddFallbackFontId
 nvgAlpha

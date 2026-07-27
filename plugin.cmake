@@ -4,12 +4,21 @@ project(MetaModulePluginSDK LANGUAGES C CXX ASM)
 
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/version.cmake)
 
-# Check ARM GCC toolchain version compatibility
+# Check ARM GCC toolchain version compatibility. Each supported major version
+# has a matching prebuilt plugin-libc archive in plugin-libc/lib/.
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    if(NOT (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "12.2.0" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "12.4.0"))
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "12.2.0" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "12.4.0")
+        set(METAMODULE_LIBC_GCC_MAJOR 12)
+    elseif(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "13.2.0" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "13.4.0")
+        set(METAMODULE_LIBC_GCC_MAJOR 13)
+    elseif(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "14.2.0" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "14.4.0")
+        set(METAMODULE_LIBC_GCC_MAJOR 14)
+    elseif(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "15.2.0" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "15.4.0")
+        set(METAMODULE_LIBC_GCC_MAJOR 15)
+    else()
         message(FATAL_ERROR
             " ARM GCC ${CMAKE_CXX_COMPILER_VERSION} is not supported."
-            " The MetaModule Plugin SDK requires ARM GNU Toolchain 12.2 or 12.3.\n"
+            " The MetaModule Plugin SDK requires ARM GNU Toolchain 12.2/12.3, 13.2/13.3, 14.2/14.3, or 15.2/15.3.\n"
             " Download the correct version from:\n"
             "   https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads\n"
             " Specify the toolchain path with:\n"
@@ -21,8 +30,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_BUILD_TYPE "RelWithDebInfo")
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/ccache.cmake)
 
-# Whether to compile with static libc and libm
-set(METAMODULE_PLUGIN_STATIC_LIBC 0)
 
 # Set the chip architecture
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/arch_mp15xa7.cmake)
@@ -102,6 +109,10 @@ function(create_plugin)
     set(VERSION_FILE ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/version.cc)
     target_sources(${LIB_NAME} PRIVATE ${VERSION_FILE})
 
+    # Route the plugin's exception unwinder to the host's unified exidx
+    # lookup, so exceptions can unwind across the plugin/host boundary
+    target_sources(${LIB_NAME} PRIVATE ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/unwind_exidx.c)
+
     target_compile_definitions(${LIB_NAME} PRIVATE METAMODULE)
     target_compile_options(${LIB_NAME} PRIVATE 
         -fvisibility=hidden
@@ -113,23 +124,34 @@ function(create_plugin)
         -Wl,-Map,plugin.map,--cref
         -Wl,--gc-sections
         -Wl,--require-defined=init
+        # Bind references to symbols defined in the plugin to the plugin's own
+        # definition at link time. This matches how the MetaModule loader
+        # resolves symbols anyway, and it lets place-relative references
+        # (e.g. R_ARM_TARGET2/REL32 typeinfo refs in .ARM.extab) resolve
+        # statically instead of becoming dynamic relocations the loader
+        # does not support.
+        -Wl,-Bsymbolic
+        # Do not export symbols that come from static archives (plugin-libc,
+        # libgcc): exported symbols are gc-sections roots, so without this the
+        # .so keeps unreferenced library code alive (e.g. the transactional
+        # memory clones in cow-stdexcept.cc, whose weak undefined _ITM_*
+        # references the loader would report as missing symbols). The plugin's
+        # own objects are linked directly (not via an archive), so init() and
+        # sdk_version() remain exported.
+        -Wl,--exclude-libs,ALL
         -nostartfiles 
         -nostdlib
         ${ARCH_MP15x_A7_FLAGS}
     )
 
-    if (METAMODULE_PLUGIN_STATIC_LIBC)
-        set(LINK_LIBS_DIR ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/plugin-libc/lib)
-        find_library(LIBCLIB "pluginc" PATHS ${LINK_LIBS_DIR} REQUIRED)
-        find_library(LIBMLIB "pluginm" PATHS ${LINK_LIBS_DIR} REQUIRED)
-        set(LINK_STATIC_LIBC
-            -lpluginc
-            -lpluginm
-        )
+    # libc/libm/libstdc++/libsupc++/unwinder, compiled -fPIC: the prebuilt
+    # archive shipped with the SDK that matches the toolchain's gcc version.
+    set(LIBC_ARCHIVE ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/plugin-libc/lib/libmetamodule-plugin-libc-gcc${METAMODULE_LIBC_GCC_MAJOR}.a)
+    if (NOT EXISTS ${LIBC_ARCHIVE})
+        message(FATAL_ERROR "Prebuilt plugin-libc archive not found: ${LIBC_ARCHIVE}\n"
+            " Regenerate it with scripts/build-plugin-libc-autotools.sh")
     endif()
-
-    get_target_property(LIBC_BIN_DIR metamodule-plugin-libc BINARY_DIR)
-    find_library(LIBC_BIN_DIR "metamodule-plugin-libc" PATHS ${LIBC_BIN_DIR} REQUIRED)
+    set(LIBC_DEPENDS ${LIBC_ARCHIVE})
 
     # Get objects of linked libraries, except those we know about
     get_target_property(DEP_LIBS ${LIB_NAME} LINK_LIBRARIES)
@@ -142,12 +164,11 @@ function(create_plugin)
     # Link objects into a shared library (CMake won't do it for us)
     add_custom_command(
         OUTPUT ${PLUGIN_FILE_FULL}
-        DEPENDS ${LIB_NAME}
+        DEPENDS ${LIB_NAME} ${LIBC_DEPENDS}
         COMMAND ${CMAKE_CXX_COMPILER} ${LFLAGS} -o ${PLUGIN_FILE_FULL}
-                $<TARGET_OBJECTS:${LIB_NAME}> 
+                $<TARGET_OBJECTS:${LIB_NAME}>
                 ${TARGET_LINK_LIB_OBJS}
-                -L${LIBC_BIN_DIR} 
-                -lmetamodule-plugin-libc #FIXME: silently fails if this lib is not found
+                ${LIBC_ARCHIVE}
                 -lgcc
         COMMAND_EXPAND_LISTS
         VERBATIM USES_TERMINAL

@@ -1,9 +1,10 @@
 #include "version.hh"
 
-namespace MetaModule {
+namespace MetaModule
+{
 
 __attribute__((__visibility__("default"))) Version sdk_version() {
-	return Version{2, 2, 0};
+	return Version{2, 3, 0};
 }
 
 } // namespace MetaModule
