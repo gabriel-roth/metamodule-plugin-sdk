@@ -1,0 +1,12 @@
+{
+	"MetaModuleBrandName": "USB Info Test",
+	"MetaModuleBrandSlug": "UsbInfoTest",
+	"MetaModulePluginMaintainer": "4ms Company",
+	"MetaModuleDescription": "Test plugin for the MetaModule::System USB query API",
+	"MetaModuleIncludedModules": [
+		{
+			"slug": "UsbInfo",
+			"name": "USB Info Test"
+		}
+	]
+}

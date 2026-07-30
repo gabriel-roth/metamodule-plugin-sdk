@@ -1,0 +1,16 @@
+{
+	"slug": "UsbInfoTest",
+	"name": "USB Info Test",
+	"version": "2.0.0",
+	"license": "GPL-3.0-or-later",
+	"brand": "UsbInfoTest",
+	"author": "4ms Company",
+	"description": "Test plugin for the MetaModule::System USB query API",
+	"modules": [
+		{
+			"slug": "UsbInfo",
+			"name": "USB Info Test",
+			"description": "Dumps USB connection and MIDI jack info to the console"
+		}
+	]
+}
