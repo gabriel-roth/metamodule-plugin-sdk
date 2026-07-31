@@ -9,13 +9,9 @@ See [midi/midi_in.hh](../core-interface/midi/midi_in.hh),
 
 Namespace: `MetaModule`
 
-> **Note:** `MidiInput` and `MidiOutput` are not usable in a plugin as of SDK
-> v2.3: `midi_in.hh`/`midi_out.hh` include `midi/midi_router.hh` and
-> `midi/midi_queue.hh`, which are not shipped in the SDK, and the
-> `MidiRouter::subscribe_*()` symbols they call are not in `api-symbols.txt`.
-> Until that's fixed, use the VCV Rack adaptor's `rack::midi::InputQueue` (see
-> [rack-adaptor.md](./rack-adaptor.md)). The rest of this document describes
-> the intended API. `Midi::toPrettyString()` below is exported and works today.
+A working example is in [tests/midi-test](../tests/midi-test), which converts
+incoming MIDI to gate and pitch CV and turns gate and CV back into outgoing
+Note On/Off messages.
 
 ## MidiInput
 
@@ -32,13 +28,13 @@ controller, or from a computer the module is plugged into). Active Sensing
 (0xFE) is filtered out before it reaches you. Messages are queued as they
 arrive, and the queue holds 128 messages. Destroying the object unsubscribes it.
 
-Keep it as a member of your module so that its lifetime matches the module's:
-constructing one per `update()` call would drop messages and allocate.
+Make it as a member of your module so that its lifetime matches the module's:
+constructing one per `update()` call would drop messages and allocate memory.
 
-Drain the queue on every `update()`. The queue overwrites its oldest entry when
-it's full, so a module that pops only one message per sample silently loses the
-start of dense passages (a chord, or a controller sweep). Both `pop_message()`
-overloads return nothing/false once the queue is empty:
+If more MIDI messages are received faster than you pop them, the queue will
+fill up and eventually start over-writing the oldest messages. 
+
+Both `pop_message()` overloads return nothing/false once the queue is empty:
 
 ```c++
 #include "midi/midi_in.hh"
@@ -85,15 +81,18 @@ struct MidiOutput {
 };
 ```
 
-Creating a `MidiOutput` subscribes it to the outgoing MIDI stream; messages
+Creating a `MidiOutput` subscribes it to the outgoing MIDI stream. Messages
 pushed to it are sent out the MIDI jack and USB. As with `MidiInput`, keep it
 as a member of your module.
 
-The queue holds 128 messages, and the audio engine pops one message from it per
-audio block to hand to the hardware. Pushing to a full queue overwrites the
-oldest message that hasn't been sent yet, so check `is_queue_full()` first if
-losing messages would be a problem. Note that messages generated while nothing
-is connected to MIDI are discarded rather than held.
+The queue holds 128 messages in current firmware but may change without an SDK
+version bump, so don't rely on this size.
+
+The audio engine pops one message from it per audio sample to hand to the
+hardware. Pushing to a full queue overwrites the oldest message that hasn't
+been sent yet, so check `is_queue_full()` first if losing messages would be a
+problem. Note that messages generated while nothing is connected to MIDI are
+discarded rather than held.
 
 ```c++
 #include "midi/midi_out.hh"
@@ -141,8 +140,9 @@ number shown in most MIDI software).
 
 ### Reading a message
 
-Rather than decoding `data.byte[]` yourself, use the accessors, which name the
-data bytes according to the message type:
+Rather than decoding `data.byte[]` yourself, you can use the accessors, which
+name the data bytes according to the message type:
+
 
 | Function            | Returns                                                    |
 |---------------------|------------------------------------------------------------|
@@ -160,8 +160,7 @@ data bytes according to the message type:
 And to test what kind of message it is:
 
 - `is_noteon()` / `is_noteoff()`: these handle the usual convention that a Note
-  On with velocity 0 means Note Off, so prefer them over comparing the command
-  yourself.
+  On with velocity 0 means Note Off.
 - `is_command<MidiCommand::ControlChange>()` (and the other `MidiCommand`
   values): matches the command nibble, any channel.
 - `is_system_common<SongPositionPtr>()`, `is_system_realtime<TimingClock>()`:
@@ -169,15 +168,16 @@ And to test what kind of message it is:
   `SongPositionPtr`, `SongSelect`, `TuneRequest`, `EndExclusive`, and
   `TimingClock`, `Start`, `Continue`, `Stop`, `ActiveSending`, `SystemReset`.
 - `is_timing_transport()`: true for Timing Clock, Start, Stop, or Continue.
-- `is_sysex()` / `has_sysex_end()`: SysEx is delivered as a series of messages;
-  `is_sysex()` is true for each of them, and `has_sysex_end()` marks the one
-  carrying the 0xF7 terminator.
+- `is_sysex()` / `has_sysex_end()`: SysEx is delivered as a series of messages,
+  and `is_sysex()` is true for each of them. To see if a message has the 0xF7 
+  terminator, use `has_sysex_end()`.
 
 `MidiMessage::note_name(uint8_t)` returns a note number as a string such as
 `"C3"` or `"F#4"`, using the same octave numbering as the rest of the
-MetaModule UI. It allocates a `std::string`, so don't call it from `update()`.
+MetaModule UI. It allocates a `std::string`, so don't call it from `update()`
+(it's designed to be used in a text display, graphic display, or context menu).
 
-### Filtering by source
+### Filtering by USB MIDI Cable Number
 
 `usb_hdr.cable_num` is the USB-MIDI cable number the message arrived on, which
 identifies which port of a multi-port USB device sent it. Use
@@ -189,7 +189,9 @@ auto status = System::get_usb_connection_status();
 
 for (unsigned c = 0; c < status.num_midi_rx_cables; c++) {
     auto cable = System::get_usb_midi_rx_cable(c);
-    // cable.name is the port name, e.g. "Kontrol DAW"
+    if (cable.name.is_equal("Kontrol DAW")) {
+        my_port = c;
+    }
 }
 
 if (auto msg = midi.pop_message()) {
@@ -198,8 +200,8 @@ if (auto msg = midi.pop_message()) {
 }
 ```
 
-"rx" means cables the device sends to us -- the direction these messages are
-travelling. Note this is *not* the same as the device's MIDI IN jacks: see
+"rx" means cables the other device sends to us -- the direction these messages are
+travelling. Note this is not the same as the device's MIDI IN jacks: see
 [system-api.md](./system-api.md#usb) for why. When the MetaModule is plugged
 into a computer rather than acting as a host, it presents a single MIDI port, so
 `cable_num` is always 0.
@@ -225,3 +227,7 @@ using namespace MetaModule;
 std::array<uint8_t, 3> bytes{msg.status, msg.data.byte[0], msg.data.byte[1]};
 std::string text = Midi::toPrettyString(bytes);
 ```
+
+You can see an example of the generated strings in the RackCore MIDI_CV module:
+the strings are displayed on the module's display when MIDI is receieved.
+
