@@ -1,6 +1,7 @@
 // Test plugin for the MetaModule::System USB query API:
 //   get_usb_connection_status()
 //   get_usb_midi_in_jack_info(n) / get_usb_midi_out_jack_info(n)
+//   get_usb_midi_rx_cable(n) / get_usb_midi_tx_cable(n)
 //
 // Dumps the full connection info to the console at plugin load, at module
 // creation, and then once per second whenever anything changes (plug/unplug a
@@ -56,6 +57,8 @@ struct Snapshot {
 	UsbConnectionStatus status;
 	UsbMidiJackInfo in_jacks[MaxMidiJacks];
 	UsbMidiJackInfo out_jacks[MaxMidiJacks];
+	UsbMidiJackInfo rx_cables[MaxMidiCables];
+	UsbMidiJackInfo tx_cables[MaxMidiCables];
 };
 
 Snapshot take_snapshot() {
@@ -66,6 +69,10 @@ Snapshot take_snapshot() {
 		s.in_jacks[i] = get_usb_midi_in_jack_info(i);
 		s.out_jacks[i] = get_usb_midi_out_jack_info(i);
 	}
+	for (unsigned i = 0; i < MaxMidiCables; i++) {
+		s.rx_cables[i] = get_usb_midi_rx_cable(i);
+		s.tx_cables[i] = get_usb_midi_tx_cable(i);
+	}
 	return s;
 }
 
@@ -74,18 +81,25 @@ Snapshot take_snapshot() {
 bool differs(Snapshot const &a, Snapshot const &b) {
 	auto jack_differs = [](UsbMidiJackInfo const &x, UsbMidiJackInfo const &y) {
 		return x.valid != y.valid || x.jack_id != y.jack_id || x.is_embedded != y.is_embedded ||
+			   x.has_cable != y.has_cable || (x.has_cable && x.cable_num != y.cable_num) ||
 			   std::string_view{x.name.c_str()} != std::string_view{y.name.c_str()};
 	};
 
 	if (a.status.connection != b.status.connection || a.status.vid != b.status.vid || a.status.pid != b.status.pid ||
 		a.status.num_midi_in_jacks != b.status.num_midi_in_jacks ||
 		a.status.num_midi_out_jacks != b.status.num_midi_out_jacks ||
+		a.status.num_midi_rx_cables != b.status.num_midi_rx_cables ||
+		a.status.num_midi_tx_cables != b.status.num_midi_tx_cables ||
 		std::string_view{a.status.manufacturer.c_str()} != std::string_view{b.status.manufacturer.c_str()} ||
 		std::string_view{a.status.product.c_str()} != std::string_view{b.status.product.c_str()})
 		return true;
 
 	for (unsigned i = 0; i < MaxMidiJacks; i++) {
 		if (jack_differs(a.in_jacks[i], b.in_jacks[i]) || jack_differs(a.out_jacks[i], b.out_jacks[i]))
+			return true;
+	}
+	for (unsigned i = 0; i < MaxMidiCables; i++) {
+		if (jack_differs(a.rx_cables[i], b.rx_cables[i]) || jack_differs(a.tx_cables[i], b.tx_cables[i]))
 			return true;
 	}
 	return false;
@@ -98,11 +112,23 @@ void dump_jacks(char const *dir, UsbMidiJackInfo const *jacks, uint8_t declared)
 		auto const &j = jacks[i];
 		if (!j.valid)
 			continue;
-		printf("[usb-test]     [%u] jack_id=%u %-8s name=\"%s\"\n",
+		char cable[16];
+		if (j.has_cable)
+			snprintf(cable, sizeof(cable), "cable=%-2u", j.cable_num);
+		else
+			snprintf(cable, sizeof(cable), "cable=- ");
+
+		printf("[usb-test]     [%u] jack_id=%-3u %-8s %s name=\"%s\"\n",
 			   i,
 			   j.jack_id,
 			   j.is_embedded ? "Embedded" : "External",
+			   cable,
 			   j.name.c_str());
+
+		// Only Embedded jacks are reachable over USB, so only they can have a
+		// cable number.
+		if (j.has_cable && !j.is_embedded)
+			printf("[usb-test]     WARNING: External jack %u reports a cable number\n", i);
 	}
 
 	// Consistency check: the status struct's count should match the number of
@@ -120,6 +146,33 @@ void dump_jacks(char const *dir, UsbMidiJackInfo const *jacks, uint8_t declared)
 			printf("[usb-test]     WARNING: jack %u past the declared count reports valid\n", i);
 }
 
+// The cable view: what a module would show the user in a "pick a MIDI port" list.
+void dump_cables(char const *dir, UsbMidiJackInfo const *cables, uint8_t declared) {
+	printf("[usb-test]   MIDI %s cables: %u declared\n", dir, declared);
+
+	for (unsigned c = 0; c < MaxMidiCables; c++) {
+		auto const &j = cables[c];
+		if (!j.valid) {
+			if (c < declared)
+				printf("[usb-test]     WARNING: cable %u is within the declared count but is invalid\n", c);
+			continue;
+		}
+
+		printf("[usb-test]     cable %u: jack_id=%-3u %-8s name=\"%s\"\n",
+			   c,
+			   j.jack_id,
+			   j.is_embedded ? "Embedded" : "External",
+			   j.name.c_str());
+
+		if (c >= declared)
+			printf("[usb-test]     WARNING: cable %u past the declared count reports valid\n", c);
+		if (!j.has_cable || j.cable_num != c)
+			printf("[usb-test]     WARNING: cable %u reports has_cable=%d cable_num=%u\n", c, j.has_cable, j.cable_num);
+		if (!j.is_embedded)
+			printf("[usb-test]     WARNING: cable %u is served by an External jack\n", c);
+	}
+}
+
 void dump(Snapshot const &s, char const *reason) {
 	auto const &st = s.status;
 
@@ -134,12 +187,22 @@ void dump(Snapshot const &s, char const *reason) {
 	dump_jacks("IN ", s.in_jacks, st.num_midi_in_jacks);
 	dump_jacks("OUT", s.out_jacks, st.num_midi_out_jacks);
 
+	// rx cables carry messages from the device to us (they're served by the
+	// device's Embedded MIDI OUT jacks); tx cables are the other direction.
+	dump_cables("RX", s.rx_cables, st.num_midi_rx_cables);
+	dump_cables("TX", s.tx_cables, st.num_midi_tx_cables);
+
 	// Out-of-range queries must come back invalid rather than crashing or
 	// returning stale data.
 	auto past_in = get_usb_midi_in_jack_info(MaxMidiJacks);
 	auto past_out = get_usb_midi_out_jack_info(MaxMidiJacks + 100);
 	printf("[usb-test]   out-of-range jack query: %s\n",
 		   (!past_in.valid && !past_out.valid) ? "PASS (both invalid)" : "FAIL (reported valid)");
+
+	auto past_rx = get_usb_midi_rx_cable(MaxMidiCables);
+	auto past_tx = get_usb_midi_tx_cable(MaxMidiCables + 100);
+	printf("[usb-test]   out-of-range cable query: %s\n",
+		   (!past_rx.valid && !past_tx.valid) ? "PASS (both invalid)" : "FAIL (reported valid)");
 
 	printf("[usb-test] ----------------------------------\n");
 }

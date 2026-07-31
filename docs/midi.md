@@ -181,15 +181,28 @@ MetaModule UI. It allocates a `std::string`, so don't call it from `update()`.
 
 `usb_hdr.cable_num` is the USB-MIDI cable number the message arrived on, which
 identifies which port of a multi-port USB device sent it. Use
-[`System::get_usb_midi_in_jack_info()`](./system-api.md#usb) to find out what
-those ports are called, then match on `cable_num` to listen to just one:
+[`System::get_usb_midi_rx_cable()`](./system-api.md#usb) to find out what those
+ports are called, then match on `cable_num` to listen to just one:
 
 ```c++
+auto status = System::get_usb_connection_status();
+
+for (unsigned c = 0; c < status.num_midi_rx_cables; c++) {
+    auto cable = System::get_usb_midi_rx_cable(c);
+    // cable.name is the port name, e.g. "Kontrol DAW"
+}
+
 if (auto msg = midi.pop_message()) {
     if (msg->usb_hdr.cable_num == my_port)
         process(*msg);
 }
 ```
+
+"rx" means cables the device sends to us -- the direction these messages are
+travelling. Note this is *not* the same as the device's MIDI IN jacks: see
+[system-api.md](./system-api.md#usb) for why. When the MetaModule is plugged
+into a computer rather than acting as a host, it presents a single MIDI port, so
+`cable_num` is always 0.
 
 ## Midi::toPrettyString()
 
