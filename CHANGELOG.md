@@ -1,36 +1,24 @@
 # Change Log for SDK API
 
-### v2.3
-
-- New functions in the API, for querying the USB port (see [system/usb.hh](core-interface/system/usb.hh)):
-   - System::get_usb_connection_status(): what is attached to the USB-C port
-     (or what the MetaModule is attached to), including the device's VID/PID
-     and manufacturer/product strings when the MetaModule is the host.
-   - System::get_usb_midi_in_jack_info() / System::get_usb_midi_out_jack_info():
-     name, jack ID, and Embedded/External type of each MIDI jack (port) of an
-     attached USB-MIDI device.
-
-- Plugins may throw exceptions across their own frames while the heap is
-  exhausted, and uncaught exceptions and abort() no longer take down the
-  firmware:
-   - New symbol: `__gnu_Unwind_Find_exidx`, plus an unwinder "bridge"
-     (`mm_host_find_exidx`) so the plugin's unwinder can find its own exception
-     tables.
-
-- Fixed `basename()` (was missing from plugin-libc) and `stat()` (was resolving
-  to a newlib wrapper that nothing implements) when linking a plugin against
-  plugin-libc.
-
-- Expanded API documentation:
-   - New: [MIDI](docs/midi.md)
-   - New: USB section in [System API](docs/system-api.md)
-
-- `examples/` renamed to `tests/`, so as not to confuse it with the
-  metamodule-plugin-examples repo.
-   - `tests/exceptions-test` gained OOM/bad_alloc, malloc alignment, and
+### v2.3.0
+- Support for exceptions crossing the plugin-host boundary: throwing an
+  exception in a plugin can be caught in firmware, and vice-versa. This allows
+  firmware to respond to plugins attempting to allocate too much memory, and stop
+  the patch or module gracefully rather than crashing.
+- Add USB query functions (see  [System API](docs/system-api.md)):
+   - System::get_usb_connection_status()
+   - System::get_usb_midi_in_jack_info()
+   - System::get_usb_midi_out_jack_info()
+- Fixed MidiInput and MidiOutput API: some headers were missing, making them
+  unusable in v2.2.0 and v2.2.1
+   - Expanded documentation: [MIDI](docs/midi.md)
+- Fixed missing symbols `basename()` and `stat()` when linking a plugin.
+- Implemented test plugins:
+   - `tests/exceptions-test` tests OOM/bad_alloc, malloc alignment, and
      basename/stat regression tests.
    - New: `tests/usb-info-test` dumps everything the USB query API reports to
      the console.
+
 
 ### v2.2.1
 
