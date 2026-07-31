@@ -341,3 +341,134 @@ System::delay_ms(1);
 ```
 
 
+## USB
+
+See [system/usb.hh](../core-interface/system/usb.hh)
+
+Namespace: `MetaModule::System`
+
+These functions report what (if anything) is connected to the USB-C port.
+The MetaModule can act as a USB host (when a device such as a MIDI controller or a
+drive is plugged into it) or as a USB device (typically when the MetaModule is plugged
+into a computer). The connection type tells you which role is active.
+
+A complete example is in [tests/usb-info-test](../tests/usb-info-test), which
+dumps everything described here to the console.
+
+### System::get_usb_connection_status()
+
+```c++
+UsbConnectionStatus get_usb_connection_status();
+```
+
+Returns a snapshot of the current USB connection:
+
+```c++
+struct UsbConnectionStatus {
+    uint16_t vid = 0;   // attached device's idVendor (host mode)
+    uint16_t pid = 0;   // attached device's idProduct (host mode)
+
+    UsbConnectionType connection = UsbConnectionType::None;
+    uint8_t num_midi_in_jacks = 0;  // MIDI IN jacks declared by the device
+    uint8_t num_midi_out_jacks = 0;
+
+    StaticString<63> manufacturer;  // iManufacturer string (may be empty)
+    StaticString<63> product;       // iProduct string (may be empty)
+};
+```
+
+The `connection` field is one of:
+
+| `UsbConnectionType`           | Meaning                                                            |
+|-------------------------------|--------------------------------------------------------------------|
+| `None`                        | Nothing attached                                                    |
+| `HostSearching`               | Host: port powered, no device class active yet                      |
+| `HostMidiDevice`              | Host: a USB MIDI device is attached                                 |
+| `HostUsbDrive`                | Host: a USB mass-storage drive is attached                          |
+| `DeviceWaiting`               | Device: not yet enumerated by a host                                |
+| `DeviceMidiHost`              | Device: enumerated as a USB-MIDI device by a host                   |
+| `DeviceVideoHost`             | Device: enumerated as a UVC video device by a host                  |
+| `DeviceConsoleHost`           | Device: enumerated as a CDC serial console by a host                |
+| `DeviceModePeripheralIgnored` | Forced to device role, but a peripheral was sensed on the port: unusable until USB Mode is set to Auto or Host |
+
+The device fields (vid, pid, manufacturer, product, and the jack counts) are
+populated only in host mode, when there is an attached peripheral to describe.
+In device mode there is no peripheral descriptor to report, so those fields are
+zero/empty and only `connection` is meaningful.
+
+Example usage:
+
+```c++
+#include "system/usb.hh"
+using namespace MetaModule;
+
+auto status = System::get_usb_connection_status();
+
+if (status.connection == System::UsbConnectionType::HostMidiDevice) {
+    // Detect a particular VID/PID and do something special with it
+    if (status.vid == MyDeviceVID && status.pid == MyDevicePID) {
+        communicate_with_my_device();
+    }
+}
+```
+
+### System::get_usb_midi_in_jack_info() / get_usb_midi_out_jack_info()
+
+```c++
+UsbMidiJackInfo get_usb_midi_in_jack_info(unsigned num);
+UsbMidiJackInfo get_usb_midi_out_jack_info(unsigned num);
+```
+
+A USB-MIDI device declares one jack descriptor per port in each direction.
+The struct returned from get_usb_connection_status() tells you how many MIDI
+in and out jacks the device has. You can then pass a jack number to 
+`get_usb_midi_in/out_jack_info()` to get the information in the descriptor:
+
+```c++
+struct UsbMidiJackInfo {
+    StaticString<31> name;    // the jack's iJack string descriptor (may be empty)
+    uint8_t jack_id = 0;      // bJackID: the device's own ID for this jack
+    bool is_embedded = false; // true: Embedded jack (a real port); false: External
+    bool valid = false;       // false if `num` was out of range / no such jack
+};
+```
+
+Always check `valid` before using the other fields: it is false if `num` is out
+of range (that is, `num >= num_midi_in_jacks` for the IN direction, or
+`>= num_midi_out_jacks` for OUT). At most `MetaModule::System::MaxMidiJacks`
+(16) jacks per direction are reported, no matter how many the device declares.
+
+Note that jack numbers are just indices into the snapshot: `jack_id` is a
+separate value assigned by the device itself, and the two are not usually equal.
+
+Example usage:
+
+```c++
+#include "system/usb.hh"
+using namespace MetaModule;
+
+auto status = System::get_usb_connection_status();
+
+// If we find a jack containing "DAW" in its name, only listen to messages from it.
+
+uint8_t filter_id = 0;
+
+for (unsigned i = 0; i < status.num_midi_in_jacks; i++) {
+    auto jack = System::get_usb_midi_in_jack_info(i);
+    if (jack.valid && jack.name.contains("DAW")) {
+        filter_id = jack.jack_id;
+        break;
+    }
+}
+
+// Now we can filter our incoming messages
+
+if (auto msg = midi.pop_message()) {
+    if (msg->usb_hdr.cable_num == filter_id) {
+        process_DAW_message(msg);
+    }
+}
+
+```
+
+

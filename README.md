@@ -32,6 +32,8 @@ For example projects using this SDK, see [metamodule-plugin-examples](https://gi
      - Memory
      - Random
      - Time
+     - USB
+ - [MIDI](docs/midi.md)
  - [Filesystem calls](docs/filesystem-syscalls.md)
  - [File browser](docs/file-browser.md)
  - [Async Thread](docs/async-threads.md)
