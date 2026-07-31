@@ -424,23 +424,23 @@ UsbMidiJackInfo get_usb_midi_rx_cable(unsigned cable_num);
 UsbMidiJackInfo get_usb_midi_tx_cable(unsigned cable_num);
 ```
 
-A multi-port USB-MIDI device carries each of its ports on a separate *cable*,
+A multi-port USB-MIDI device carries each of its ports on a separate "cable",
 and every message it sends is tagged with the cable number it came from
 (`MidiMessage::usb_hdr.cable_num`). These two functions tell you what each cable
-is called, so you can present the user with a list of port names and then filter
-on the one they pick.
+is called, so you can present the user with a list of port names and/or filter
+received messages on a cable number, and/or transmit to particular cables.
 
 `rx` and `tx` are relative to the MetaModule:
 
-- **rx cables** carry messages *from* the device *to* the MetaModule. These are
+- **rx cables** carry messages from the other device to the MetaModule. These are
   the ones to match against messages you get from `MidiInput::pop_message()`.
-- **tx cables** are the ones the MetaModule can send messages to.
+- **tx cables** are the ones the MetaModule can send messages to with `MidiOutput::push_message`.
 
 Valid cable numbers run from 0 to `num_midi_rx_cables - 1` (or
 `num_midi_tx_cables - 1`) as reported by `get_usb_connection_status()`. Out of
 range returns an entry whose `valid` is false. A device can have at most
-`MetaModule::System::MaxMidiCables` (16) cables per direction, which is also the
-protocol's own limit -- the cable number field in a USB-MIDI packet is 4 bits.
+`MetaModule::System::MaxMidiCables` (16) cables per direction, which is the USB-MIDI
+limit.
 
 Example usage:
 
@@ -471,11 +471,12 @@ if (auto msg = midi.pop_message()) {
 }
 ```
 
-Both functions return a `UsbMidiJackInfo`, described below; for a cable,
+Both functions return a `UsbMidiJackInfo`, described below. For a cable,
 `cable_num` is just the number you passed in and `has_cable` is always true.
-The `name` is the device's own name for that port -- the same string a computer
-would show in its MIDI port list. Some devices leave the name empty, so be
-prepared to fall back on a generic label like `"Port 1"`.
+The `name` is the device's own name for that port, which is the same string a
+computer would show in its MIDI port list. Some devices leave the name empty,
+so be prepared to fall back on a generic label like `"Port 1"` if you intend
+to list the cable names to the user.
 
 ### System::get_usb_midi_in_jack_info() / get_usb_midi_out_jack_info()
 
@@ -485,7 +486,7 @@ UsbMidiJackInfo get_usb_midi_out_jack_info(unsigned num);
 ```
 
 This is the lower-level view: the raw jack descriptors the device declares.
-Most modules want `get_usb_midi_rx_cable()` above instead; use these if you need
+Most modules want `get_usb_midi_rx_cable()` above instead. Only use these if you need
 to see the device's full internal topology, for instance to tell an Embedded
 jack from an External one.
 
@@ -515,7 +516,7 @@ separate value assigned by the device itself, and the two are not usually equal.
 Two things about jacks are easy to get backwards:
 
 - **Only Embedded jacks have cable numbers.** External jacks are the device's
-  physical DIN sockets; they carry MIDI between the device and the outside
+  physical sockets. They carry MIDI between the device and the outside
   world, not over USB, so `has_cable` is false for them. It can also be false
   for an Embedded jack the device declared but didn't associate with an
   endpoint.
