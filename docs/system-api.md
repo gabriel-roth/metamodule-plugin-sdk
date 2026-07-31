@@ -348,8 +348,8 @@ See [system/usb.hh](../core-interface/system/usb.hh)
 Namespace: `MetaModule::System`
 
 These functions report what (if anything) is connected to the USB-C port.
-The MetaModule can act as a USB *host* (a device such as a MIDI controller or a
-drive is plugged into it) or as a USB *device* (the module itself is plugged
+The MetaModule can act as a USB host (when a device such as a MIDI controller or a
+drive is plugged into it) or as a USB device (typically when the MetaModule is plugged
 into a computer). The connection type tells you which role is active.
 
 A complete example is in [tests/usb-info-test](../tests/usb-info-test), which
@@ -405,12 +405,10 @@ using namespace MetaModule;
 auto status = System::get_usb_connection_status();
 
 if (status.connection == System::UsbConnectionType::HostMidiDevice) {
-    printf("MIDI device %04x:%04x \"%s\" has %u IN and %u OUT jacks\n",
-           status.vid,
-           status.pid,
-           status.product.c_str(),
-           status.num_midi_in_jacks,
-           status.num_midi_out_jacks);
+    // Detect a particular VID/PID and do something special with it
+    if (status.vid == MyDeviceVID && status.pid == MyDevicePID) {
+        communicate_with_my_device();
+    }
 }
 ```
 
@@ -422,7 +420,9 @@ UsbMidiJackInfo get_usb_midi_out_jack_info(unsigned num);
 ```
 
 A USB-MIDI device declares one jack descriptor per port in each direction.
-These return info about jack number `num` of the attached device (host mode):
+The struct returned from get_usb_connection_status() tells you how many MIDI
+in and out jacks the device has. You can then pass a jack number to 
+`get_usb_midi_in/out_jack_info()` to get the information in the descriptor:
 
 ```c++
 struct UsbMidiJackInfo {
@@ -449,15 +449,26 @@ using namespace MetaModule;
 
 auto status = System::get_usb_connection_status();
 
+// If we find a jack containing "DAW" in its name, only listen to messages from it.
+
+uint8_t filter_id = 0;
+
 for (unsigned i = 0; i < status.num_midi_in_jacks; i++) {
     auto jack = System::get_usb_midi_in_jack_info(i);
-    if (jack.valid)
-        printf("IN jack %u: id=%u %s \"%s\"\n",
-               i,
-               jack.jack_id,
-               jack.is_embedded ? "Embedded" : "External",
-               jack.name.c_str());
+    if (jack.valid && jack.name.contains("DAW")) {
+        filter_id = jack.jack_id;
+        break;
+    }
 }
+
+// Now we can filter our incoming messages
+
+if (auto msg = midi.pop_message()) {
+    if (msg->usb_hdr.cable_num == filter_id) {
+        process_DAW_message(msg);
+    }
+}
+
 ```
 
 
