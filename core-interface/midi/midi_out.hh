@@ -1,27 +1,19 @@
 #pragma once
-#include "midi/midi_router.hh"
+#include "midi/midi_message.hh"
+#include <memory>
 
 namespace MetaModule
 {
 
 struct MidiOutput {
-	MidiQueue queue;
+	struct Internal;
+	std::unique_ptr<Internal> internal;
 
-	MidiOutput() {
-		MidiRouter::subscribe_tx(&queue);
-	}
+	MidiOutput();
+	~MidiOutput();
 
-	~MidiOutput() {
-		MidiRouter::unsubscribe_tx(&queue);
-	}
-
-	void push_message(MidiMessage msg) {
-		queue.put(msg);
-	}
-
-	bool is_queue_full() const {
-		return queue.full();
-	}
+	void push_message(MidiMessage msg);
+	bool is_queue_full() const;
 };
 
 } // namespace MetaModule
