@@ -1,0 +1,16 @@
+{
+	"slug": "MidiTest",
+	"name": "MIDI Test",
+	"version": "2.0.0",
+	"license": "GPL-3.0-or-later",
+	"brand": "MidiTest",
+	"author": "4ms Company",
+	"description": "Test plugin for the MetaModule MIDI API",
+	"modules": [
+		{
+			"slug": "MidiIO",
+			"name": "MIDI I/O Test",
+			"description": "MIDI in to gate/CV, and gate/CV to MIDI out"
+		}
+	]
+}
