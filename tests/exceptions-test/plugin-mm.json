@@ -1,0 +1,24 @@
+{
+	"MetaModuleBrandName": "Exceptions Test",
+	"MetaModuleBrandSlug": "ExceptionsTest",
+	"MetaModulePluginMaintainer": "4ms Company",
+	"MetaModuleDescription": "Test plugin for C++ exception support in the MetaModule plugin SDK",
+	"MetaModuleIncludedModules": [
+		{
+			"slug": "ExcTest",
+			"name": "Exceptions Test"
+		},
+		{
+			"slug": "ExcTestThrowFatal",
+			"name": "Uncaught Throw Test (halts!)"
+		},
+		{
+			"slug": "ExcTestOomFatal",
+			"name": "Uncaught OOM Test (halts!)"
+		},
+		{
+			"slug": "ExcTestAbortFatal",
+			"name": "Direct abort() Test (halts!)"
+		}
+	]
+}

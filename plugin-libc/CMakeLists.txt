@@ -1,24 +1,16 @@
-add_library(metamodule-plugin-libc STATIC)
+# plugin-libc: libc/libm/libstdc++/libsupc++ and the libgcc unwinder,
+# compiled as -fPIC for linking into plugin .so files.
+#
+# Plugins link against the prebuilt archive in lib/ that matches the
+# toolchain's gcc major version (selected in plugin.cmake).
+#
+# To regenerate the prebuilt archives, run:
+#   scripts/build-plugin-libc-autotools.sh
+
+add_library(metamodule-plugin-libc INTERFACE)
 add_library(metamodule::plugin-libc ALIAS metamodule-plugin-libc)
 
-if (METAMODULE_PLUGIN_STATIC_LIBC)
-    target_sources(metamodule-plugin-libc PRIVATE
-        ${CMAKE_CURRENT_LIST_DIR}/dso_handle.c
-    )
-else()
-    include(libm.cmake)
-    include(libc.cmake)
-endif()
-
-include(libsupcpp.cmake)
-include(libstdcpp.cmake)
-
-
-target_compile_options(metamodule-plugin-libc PRIVATE
-	-fbuiltin
-	-fno-math-errno
-
-    # Do not export plugin-libc symbols (removes unused symbols and does not make GOT/PLT tables for them):
-    -fvisibility=hidden 
+# Header overrides (arm-acle-compat.h)
+target_include_directories(metamodule-plugin-libc INTERFACE
+	${CMAKE_CURRENT_LIST_DIR}/include
 )
-

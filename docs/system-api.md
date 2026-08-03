@@ -207,6 +207,20 @@ buffer.resize(free_mem / 4); // limit our usage to 25% of available memory
 
 ```
 
+Note that starting in SDK v2.3, failed allocations will throw an exception, so you should pattern large
+allocations like this:
+
+```c++
+std::vector<float> sample_data;
+
+try {
+    sample_data.resize(sample_size); 
+    sample_loaded = true;
+} catch (std::bad_alloc &) {
+    Gui::notify_user("Could not allocate memory for the sample. Choose a smaller file.", 2000);
+    sample_loaded = false;
+}
+```
 
 ### System::total_memory()
 
@@ -339,5 +353,231 @@ using namespace MetaModule;
 
 System::delay_ms(1);
 ```
+
+
+## USB
+
+See [system/usb.hh](../core-interface/system/usb.hh)
+
+Namespace: `MetaModule::System`
+
+These functions report what (if anything) is connected to the USB-C port.
+The MetaModule can act as a USB host (when a device such as a MIDI controller or a
+drive is plugged into it) or as a USB device (typically when the MetaModule is plugged
+into a computer). The connection type tells you which role is active.
+
+A complete example is in [tests/usb-info-test](../tests/usb-info-test), which
+dumps everything described here to the console.
+
+### System::get_usb_connection_status()
+
+```c++
+UsbConnectionStatus get_usb_connection_status();
+```
+
+Returns a snapshot of the current USB connection:
+
+```c++
+struct UsbConnectionStatus {
+    UsbConnectionType connection = UsbConnectionType::None;
+
+    uint8_t num_midi_rx_cables = 0; // MIDI streams the device sends to us
+    uint8_t num_midi_tx_cables = 0; // MIDI streams we can send to it
+
+    uint8_t num_midi_in_jacks = 0;  // MIDI IN jacks declared by the device
+    uint8_t num_midi_out_jacks = 0;
+
+    uint16_t vid = 0;   // attached device's idVendor (host mode)
+    uint16_t pid = 0;   // attached device's idProduct (host mode)
+};
+```
+
+This struct holds only small scalars, so polling it is cheap. The device's name
+strings are reported separately by `get_usb_device_name()` below, so a module
+that only needs the cable counts doesn't pay to copy them.
+
+The `connection` field is one of:
+
+| `UsbConnectionType`           | Meaning                                                            |
+|-------------------------------|--------------------------------------------------------------------|
+| `None`                        | Nothing attached                                                    |
+| `HostSearching`               | Host: port powered, no device class active yet                      |
+| `HostMidiDevice`              | Host: a USB MIDI device is attached                                 |
+| `HostUsbDrive`                | Host: a USB mass-storage drive is attached                          |
+| `DeviceWaiting`               | Device: not yet enumerated by a host                                |
+| `DeviceMidiHost`              | Device: enumerated as a USB-MIDI device by a host                   |
+| `DeviceVideoHost`             | Device: enumerated as a UVC video device by a host                  |
+| `DeviceConsoleHost`           | Device: enumerated as a CDC serial console by a host                |
+| `DeviceModePeripheralIgnored` | Forced to device role, but a peripheral was sensed on the port: unusable until USB Mode is set to Auto or Host |
+
+The device fields (vid, pid and the jack/cable counts), like the name strings
+from `get_usb_device_name()`, are populated only in host mode, when there is an
+attached peripheral to describe. In device mode there is no peripheral
+descriptor to report, so those fields are zero/empty and only `connection` is
+meaningful. (When the MetaModule is plugged into a computer it presents a single
+MIDI port, so every message has cable number 0.)
+
+Example usage:
+
+```c++
+#include "system/usb.hh"
+using namespace MetaModule;
+
+auto status = System::get_usb_connection_status();
+
+if (status.connection == System::UsbConnectionType::HostMidiDevice) {
+    // Detect a particular VID/PID and do something special with it
+    if (status.vid == MyDeviceVID && status.pid == MyDevicePID) {
+        communicate_with_my_device();
+    }
+}
+```
+
+### System::get_usb_device_name()
+
+```c++
+UsbDeviceName get_usb_device_name();
+```
+
+The attached device's name strings, reported separately from the connection
+status so that polling the status stays cheap:
+
+```c++
+struct UsbDeviceName {
+    StaticString<63> manufacturer;  // iManufacturer string (may be empty)
+    StaticString<63> product;       // iProduct string (may be empty)
+};
+```
+
+Either string may be empty: not every device provides them, and in device mode
+there is no attached peripheral to name.
+
+```c++
+auto name = System::get_usb_device_name();
+printf("%s %s\n", name.manufacturer.c_str(), name.product.c_str());
+```
+
+### System::get_usb_midi_rx_cable() / get_usb_midi_tx_cable()
+
+```c++
+UsbMidiCableInfo get_usb_midi_rx_cable(unsigned cable_num);
+UsbMidiCableInfo get_usb_midi_tx_cable(unsigned cable_num);
+```
+
+A multi-port USB-MIDI device carries each of its ports on a separate "cable",
+and every message it sends is tagged with the cable number it came from
+(`MidiMessage::usb_hdr.cable_num`). These two functions tell you what each cable
+is called, so you can present the user with a list of port names and/or filter
+received messages on a cable number, and/or transmit to particular cables.
+
+`rx` and `tx` are relative to the MetaModule:
+
+- **rx cables** carry messages from the other device to the MetaModule. These are
+  the ones to match against messages you get from `MidiInput::pop_message()`.
+- **tx cables** are the ones the MetaModule can send messages to with `MidiOutput::push_message`.
+
+Valid cable numbers run from 0 to `num_midi_rx_cables - 1` (or
+`num_midi_tx_cables - 1`) as reported by `get_usb_connection_status()`. Out of
+range returns an entry whose `valid` is false. A device can have at most
+`MetaModule::System::MaxMidiCables` (16) cables per direction, which is the USB-MIDI
+limit.
+
+Example usage:
+
+```c++
+#include "midi/midi_in.hh"
+#include "system/usb.hh"
+using namespace MetaModule;
+
+// Find the cable whose name contains "DAW" and listen to only that one.
+
+auto status = System::get_usb_connection_status();
+int daw_cable = -1;
+
+for (unsigned c = 0; c < status.num_midi_rx_cables; c++) {
+    auto cable = System::get_usb_midi_rx_cable(c);
+    if (cable.valid && cable.name.contains("DAW")) {
+        daw_cable = c;
+        break;
+    }
+}
+
+// Now we can filter our incoming messages
+
+if (auto msg = midi.pop_message()) {
+    if (msg->usb_hdr.cable_num == daw_cable) {
+        process_DAW_message(*msg);
+    }
+}
+```
+
+Both functions return a `UsbMidiCableInfo`, which carries just what you need to
+match a cable by name and then filter on its number:
+
+```c++
+struct UsbMidiCableInfo {
+    StaticString<31> name;  // the cable's port name (may be empty)
+    uint8_t cable_num = 0;  // matches MidiMessage::usb_hdr.cable_num
+    bool valid = false;     // false if there is no such cable
+};
+```
+
+If `valid` is false, then the other fields are meaningless. Otherwise,
+`cable_num` is just the number you passed in. The `name` is the device's own
+name for that port, which is the same string a computer would show in its MIDI
+port list. Many devices leave the name empty, so be prepared to fall back on a
+generic label like `"Port 1"`, or the Manufacturer/Product name if you intend
+to display the cable name to the user.
+
+### System::get_usb_midi_in_jack_info() / get_usb_midi_out_jack_info()
+
+```c++
+UsbMidiJackInfo get_usb_midi_in_jack_info(unsigned num);
+UsbMidiJackInfo get_usb_midi_out_jack_info(unsigned num);
+```
+
+This is the lower-level view: the raw jack descriptors the device declares.
+Most modules will only need to use `get_usb_midi_rx_cable()` above instead.
+Only use the jack accessors if you need to see the device's full internal
+topology, for instance to tell an Embedded jack from an External one.
+
+The struct returned from `get_usb_connection_status()` tells you how many MIDI
+in and out jacks the device has. You can then pass a jack number to
+`get_usb_midi_in/out_jack_info()` to get the information in the descriptor:
+
+```c++
+struct UsbMidiJackInfo {
+    StaticString<31> name;    // the jack's iJack string descriptor (may be empty)
+    uint8_t jack_id = 0;      // bJackID: the device's own ID for this jack
+    uint8_t cable_num = 0;    // USB-MIDI cable number; only meaningful if has_cable
+    bool has_cable = false;   // true if this jack is addressable by a cable number
+    bool is_embedded = false; // true: Embedded jack (a real port); false: External
+    bool valid = false;       // false if `num` was out of range / no such jack
+};
+```
+
+Always check `valid` before using the other fields: it is false if `num` is out
+of range (that is, `num >= num_midi_in_jacks` for the IN direction, or
+`>= num_midi_out_jacks` for OUT). At most `MetaModule::System::MaxMidiJacks`
+(16) jacks per direction are reported, no matter how many the device declares.
+
+Note that jack numbers are just indices into the snapshot: `jack_id` is a
+separate value assigned by the device itself, and the two are not usually equal.
+
+Two things about jacks are easy to get backwards:
+
+- **Only Embedded jacks have cable numbers.** External jacks are the device's
+  physical sockets. They carry MIDI between the device and the outside
+  world, not over USB, so `has_cable` is false for them. It can also be false
+  for an Embedded jack the device declared but didn't associate with an
+  endpoint.
+- **A device's MIDI OUT jacks are what send messages to us.** So the MIDI OUT
+  jacks are the ones with rx cable numbers, and the MIDI IN jacks have the tx
+  cable numbers. This inversion is why `get_usb_midi_rx_cable()` exists: it is
+  named from the MetaModule's point of view and can't be misread.
+
+If an Embedded jack has no name of its own, the name of the External jack it is
+wired to is used instead (that's often where a device puts the useful label,
+e.g. "MIDI OUT 2").
 
 

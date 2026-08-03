@@ -1,0 +1,31 @@
+{
+	"slug": "ExceptionsTest",
+	"name": "Exceptions Test",
+	"version": "2.0.0",
+	"license": "GPL-3.0-or-later",
+	"brand": "ExceptionsTest",
+	"author": "4ms Company",
+	"description": "Test plugin for C++ exception support in the MetaModule plugin SDK",
+	"modules": [
+		{
+			"slug": "ExcTest",
+			"name": "Exceptions Test",
+			"description": "Runs throw/catch tests when loaded"
+		},
+		{
+			"slug": "ExcTestThrowFatal",
+			"name": "Uncaught Throw Test (halts!)",
+			"description": "Throws an uncaught exception from its constructor: creating it kills the plugin"
+		},
+		{
+			"slug": "ExcTestOomFatal",
+			"name": "Uncaught OOM Test (halts!)",
+			"description": "Allocates until out-of-memory without catching bad_alloc: creating it kills the plugin"
+		},
+		{
+			"slug": "ExcTestAbortFatal",
+			"name": "Direct abort() Test (halts!)",
+			"description": "Calls abort() from its constructor: exercises the host abort-rescue path"
+		}
+	]
+}

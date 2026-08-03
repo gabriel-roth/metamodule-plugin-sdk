@@ -1,5 +1,51 @@
 # Change Log for SDK API
 
+### v2.3.0
+- Support for exceptions crossing the plugin-host boundary: throwing an
+  exception in a plugin can be caught in firmware, and vice-versa. This allows
+  firmware to respond to plugins attempting to allocate too much memory, and stop
+  the patch or module gracefully rather than crashing.
+- Add USB query functions (see  [System API](docs/system-api.md)):
+   - System::get_usb_connection_status()
+   - System::get_usb_device_name()
+   - System::get_usb_midi_rx_cable() and System::get_usb_midi_tx_cable(): look
+     up a MIDI port of the attached device by cable number, so a module can
+     list the ports by name, filter incoming messages based on cable number, and/or
+     transmit messages over a particular cable.
+   - System::get_usb_midi_in_jack_info() and System::get_usb_midi_out_jack_info():
+     low-level information from the device's descriptors.
+- **Fixed MidiInput and MidiOutput API**: some headers were missing, making them
+  unusable in v2.2.0 and v2.2.1
+   - Expanded documentation: [MIDI](docs/midi.md)
+   - Added MidiMessage::is_cc() (in midi/midi_message.hh header: not an API symbol)
+- Added missing symbols `basename()` and `stat()` when linking a plugin.
+- Implemented test plugins:
+   - `tests/exceptions-test` tests OOM/bad_alloc, malloc alignment, and
+     basename/stat regression tests.
+   - New: `tests/usb-info-test` dumps everything the USB query API reports to
+     the console.
+   - New: `tests/midi-test` converts incoming MIDI to gate/pitch CV and gate/CV
+     back to outgoing Note On/Off, with an LED to verify MIDI rx unpatched. Also
+     demonstrates filtering based on cable number.
+
+
+### v2.2.1
+
+- C++ streams (fstream, iostream, sstream, etc) are fully supported in plugins.
+- C++ exceptions (throw, catch, try, etc) are fully supported in plugins.
+- Arm gcc toolchain v15.3 is now supported, in addition to v12.2/12.3
+   - Toolchain v13.2, 13.3, 14.2, 14.3, and 15.2 are also supported by running
+     a script to build the library archive
+- All libc/libstdc++/etc sources are provided in a .a file. This makes
+  compiling a plugin a little faster, but otherwise doesn't change anything for
+  plugin developers.
+
+Note: Even though support for streams and exceptions adds to the plugin's
+possible functions it can use, the API has not changed since these all run
+completely within the plugin. This means that throwing an exception from a
+plugin cannot be caught by the host firmware -- the plugin must handle the
+exception itself.
+
 ### v2.2.0
 
 - New classes and types (header-only, no API change):

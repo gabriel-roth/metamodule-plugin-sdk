@@ -1,0 +1,95 @@
+Exceptions:
+- Remove -fno-exceptions and -fno-unwind-tables from the arch flags
+- Compile the libsupc++ EH runtime (eh_*.cc) into plugin-libc
+- Compile libgcc's ARM EABI unwinder (unwind-arm.c, libunwind.S,
+  pr-support.c, unwind-c.c) as -fPIC, with stub config headers in
+  plugin-libc/glue/. __gnu_Unwind_Find_exidx is defined in the same
+  translation unit as the unwinder (a weak reference does not pull
+  archive members) and returns the plugin's own .ARM.exidx table.
+- Add cow-string-inst.cc: std::logic_error/runtime_error hold a COW
+  string for dual-ABI compatibility
+- Replace vterminate.cc with glue/vterminate_lite.cc: prints the
+  mangled exception type name instead of pulling in cp-demangle.c
+- Link plugins with -Wl,-Bsymbolic so R_ARM_TARGET2 (REL32) typeinfo
+  references in .ARM.extab resolve statically instead of becoming
+  dynamic relocations the loader does not support. This matches how
+  the loader already binds symbols defined in the plugin.
+- Link plugins with -Wl,--exclude-libs,ALL so symbols from static
+  archives are not exported: exported symbols are gc-sections roots,
+  so this also lets the linker drop unreferenced library code
+  (test plugin text size: 224kB -> 60kB)
+
+
+Streams:
+- The sources a libstdc++ build normally generates via configure,
+  taken from the vendored config/ tree: the generic locale facet
+  members (c_locale.cc, numeric/monetary/time/collate/messages/codecvt
+  members), ctype_members.cc from the newlib clocale model,
+  ctype_configure_char.cc from os/newlib, and the stdio-backed
+  __basic_file (io/basic_file_stdio.cc)
+- These (plus ios_locale.cc and misc-inst.cc) are compiled with
+  -std=gnu++98 like the real libstdc++ build: c++11 mode rejects the
+  C++98-only instantiations and hides POSIX fdopen/fileno in newlib
+  headers
+- Dual-ABI companions: cxx11-locale-inst, cxx11-wlocale-inst,
+  cxx11-ios_failure (the exception type streams throw),
+  cxx11-stdexcept, cxx11-shim_facets, cow-locale_init,
+  cow-shim_facets, cow-wstring-inst, cow-istream-string, and a
+  libstdcpp98_cow object library that recompiles the facet members
+  with _GLIBCXX_USE_CXX11_ABI=0 (the equivalent of the generated
+  *_members_cow.cc objects)
+- newlib: ctype/jp2uc.c (wide-char facets) and the non-reentrant
+  syscall wrappers sysread/syswrite/syslseek/sysfstat.c used by
+  basic_file_stdio.cc; the underlying _*_r functions are provided by
+  the firmware
+- Enable the C++20 sstream instantiations
+
+Note: the firmware does not provide _unlink_r, so std::remove() is not
+supported in plugins.
+
+Autotools build of archive:
+scripts/build-plugin-libc-autotools.sh builds the plugin libc/libstdc++
+archive from the real newlib and libstdc++ autotools build systems
+instead of the per-file source lists in plugin-libc/*.cmake:
+
+- newlib-4.3.0.20230120 (the toolchain's version) built with
+  CFLAGS_FOR_TARGET += -fPIC and configure flags that reproduce the ARM
+  12.3 toolchain configuration; the generated newlib.h is verified to
+  be identical to the toolchain's installed copy
+- libstdc++-v3 from gcc-12.3.0 configured standalone against the
+  installed cross compiler (--host=arm-none-eabi --with-newlib
+  --with-pic); configure link-test answers are seeded to match the
+  toolchain's installed c++config.h since bare-metal cross configures
+  cannot run link tests
+- Archive members whose symbols must bind to the firmware at load time
+  are removed (malloc family, abort, the reentrant _*_r syscalls,
+  init/fini) -- the same exclusions libc.cmake makes
+- Everything is merged into one libmetamodule-plugin-libc.a, with
+  __verbose_terminate_handler swapped for glue/vterminate_lite.cc to
+  avoid shipping the ~100kB demangler
+
+
+Autotools getentropy symbol missing:
+Plugins built with the autotools archive failed to load when they used
+std::random_device: libstdc++'s standalone configure concluded
+getentropy/arc4random exist (newlib declares them, and the compile-only
+cross probes succeed), so random.o referenced getentropy, which the
+firmware does not provide. The ARM toolchain's own build concludes no
+for both.
+
+- Seed getentropy/arc4random/openat/unlinkat/readlink/symlink/
+  fchmod/fchmodat to no, matching the toolchain's c++config.h
+- Fix the C99 complex seeds, which were inverted (the toolchain has
+  them enabled; seeding no also broke the _GLIBCXX_USE_C99 aggregate)
+- Pass the arch flags and -fPIC inside $CC/$CXX instead of
+  CFLAGS/CXXFLAGS: the atomic-builtins cross probe replaces CXXFLAGS
+  wholesale ('-O0 -S'), so with the flags in CXXFLAGS it compiled for
+  the default architecture, found __atomic_* libcalls, and disabled
+  _GLIBCXX_ATOMIC_BUILTINS (the in-tree multilib build passes arch
+  flags through $CXX for the same reason)
+- Make the c++config.h comparison against the toolchain's installed
+  copy a hard gate in the script (everything except the __GLIBCXX__
+  datestamp must be identical), like the existing newlib.h gate
+
+Adds tests to example plugin to catch this
+

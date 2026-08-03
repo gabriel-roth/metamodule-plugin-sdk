@@ -1,0 +1,12 @@
+{
+	"MetaModuleBrandName": "MIDI Test",
+	"MetaModuleBrandSlug": "MidiTest",
+	"MetaModulePluginMaintainer": "4ms Company",
+	"MetaModuleDescription": "Test plugin for the MetaModule MIDI API",
+	"MetaModuleIncludedModules": [
+		{
+			"slug": "MidiIO",
+			"name": "MIDI I/O Test"
+		}
+	]
+}

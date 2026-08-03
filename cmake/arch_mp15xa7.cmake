@@ -1,7 +1,6 @@
 add_library(arch_mp15x_a7 INTERFACE)
 
 set(ARCH_MP15x_A7_FLAGS
-	-fno-exceptions
 	-fno-math-errno
 	-mcpu=cortex-a7
 	-mlittle-endian
@@ -36,7 +35,6 @@ target_compile_options(arch_mp15x_a7 INTERFACE
 	-ffunction-sections
 	-nostdlib
 	-nostartfiles
-	-fno-unwind-tables
 	-Wall
 	-Werror=return-type
 	-Wno-psabi
