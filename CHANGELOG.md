@@ -14,10 +14,11 @@
      transmit messages over a particular cable.
    - System::get_usb_midi_in_jack_info() and System::get_usb_midi_out_jack_info():
      low-level information from the device's descriptors.
-- Fixed MidiInput and MidiOutput API: some headers were missing, making them
+- **Fixed MidiInput and MidiOutput API**: some headers were missing, making them
   unusable in v2.2.0 and v2.2.1
    - Expanded documentation: [MIDI](docs/midi.md)
-- Fixed missing symbols `basename()` and `stat()` when linking a plugin.
+   - Added MidiMessage::is_cc() (in midi/midi_message.hh header: not an API symbol)
+- Added missing symbols `basename()` and `stat()` when linking a plugin.
 - Implemented test plugins:
    - `tests/exceptions-test` tests OOM/bad_alloc, malloc alignment, and
      basename/stat regression tests.
@@ -25,7 +26,7 @@
      the console.
    - New: `tests/midi-test` converts incoming MIDI to gate/pitch CV and gate/CV
      back to outgoing Note On/Off, with an LED to verify MIDI rx unpatched. Also
-     demonstrates filtering based on cable number
+     demonstrates filtering based on cable number.
 
 
 ### v2.2.1
