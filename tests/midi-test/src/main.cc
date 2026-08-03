@@ -73,16 +73,13 @@ enum Outputs { GateOut, NoteCvOut };
 enum Inputs { GateIn, CvIn };
 enum Lights { MidiLed };
 
-// The Elements entries are nested braced initializers, so a misplaced brace can
-// silently produce the wrong element type. Pin the resulting counts down.
 static_assert(ElementCount::count<MidiIoInfo>() ==
 			  ElementCount::Counts{.num_params = 0, .num_lights = 1, .num_inputs = 2, .num_outputs = 2});
 
 class MidiIoCore : public CoreProcessor {
 public:
 	// Deleting the module with the gate still high would leave whatever we're
-	// driving holding a note forever. The member MidiOutput is destroyed after
-	// this body runs, so it's still usable here.
+	// driving holding a note forever.
 	~MidiIoCore() override {
 		if (last_gate_in_high)
 			send(MidiMessage{uint8_t(0x80 | MidiChannel), sent_note, 0});

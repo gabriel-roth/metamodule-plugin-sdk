@@ -4,15 +4,9 @@
 //   get_usb_midi_rx_cable(n) / get_usb_midi_tx_cable(n)
 //
 // Dumps the full connection info to the console at plugin load, at module
-// creation, and then once per second whenever anything changes (plug/unplug a
-// USB-MIDI device or drive, or change the USB Mode setting, and the new state
-// prints immediately).
+// creation, and then once per second whenever anything changes
 //
-// Outputs:
-//   0: connection type as an enum index (0 = None)
-//   1: 10V gate, high while anything is connected
-//   2: number of MIDI IN jacks
-//   3: number of MIDI OUT jacks
+// It's very likely that this module spikes the CPU, so set block size to 512 and SR to 24k.
 
 #include "CoreModules/CoreProcessor.hh"
 #include "CoreModules/elements/element_info.hh"
@@ -177,9 +171,7 @@ void dump(Snapshot const &s, char const *reason) {
 	auto const &st = s.status;
 
 	printf("[usb-test] ---- USB connection info (%s) ----\n", reason);
-	printf("[usb-test]   connection: %s (enum %u)\n",
-		   to_string(st.connection),
-		   static_cast<unsigned>(st.connection));
+	printf("[usb-test]   connection: %s (enum %u)\n", to_string(st.connection), static_cast<unsigned>(st.connection));
 	printf("[usb-test]   vid:pid: %04x:%04x\n", st.vid, st.pid);
 	printf("[usb-test]   manufacturer: \"%s\"\n", st.manufacturer.c_str());
 	printf("[usb-test]   product: \"%s\"\n", st.product.c_str());
