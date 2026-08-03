@@ -1,17 +1,59 @@
 # Tips
 
+## Memory Allocation Exceptions
 
-## Memory Allocations
+Starting in SDK v2.3, c++ exceptions are supported in plugins. The most common
+exception is due to running out of memory, so I suggest all plugins try to catch
+a `std::bad_alloc` exception whenever allocating.
+
+Example:
+
+```c++
+std::vector<float> sample_data;
+
+try {
+    sample_data.resize(sample_size); 
+    sample_loaded = true;
+} catch (std::bad_alloc &) {
+    Gui::notify_user("Could not allocate memory for the sample. Choose a smaller file.", 2000);
+    sample_loaded = false;
+}
+```
+
+If your plugin has non-dynamic data members that use a lot of memory, then if
+there is not enough memory available, the firmware itself will catch the bad 
+allocation exception, so you do not need to handle this case. Example:
+
+```c++
+// Big buffer, might not have enough memory for it:
+std::array<float, 12000000> large_buffer;
+
+MyModule() {
+    // If there is not enough memory for large_buffer, the plugin loader in 
+    // firmware will catch the exception, so you don't need to do anything
+    // special in your plugin.
+
+    config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
+    // ... etc ...
+}
+
+
+```
+
+
+
+
+## Memory Allocations in Audio Process
 
 The MetaModule has hard real-time requirements in order to acheive low-latency
 audio. 
 
 There is an audio "thread" which has the highest priority of any task. The
-audio thread calls your module's `process()` or `update()` function for each sample frame.
-Therefore any code in the `process()` function must be optimized for efficient
-execution.
+audio thread calls your module's `process()` or `update()` function for each
+sample frame. Therefore any code in the `process()` function must be optimized
+for efficient execution.
  
-This means you cannot make any memory allocations in the `process()` function
+You cannot make any memory allocations in the `process()` function
 (or any other function that's called by `process()`. This includes:
 
 - Do not create, destroy, or re-size a `std::string`. Writing characters to an
@@ -20,11 +62,12 @@ This means you cannot make any memory allocations in the `process()` function
 - Do not `push_back` or `emplace_back` or otherwise change the length of a
   std::vector (or any std container such as list, deque, etc...) You can
   read/write data in a vector, but don't change the capacity of the vector. If
-  you do need a dynamically-sized vector in the audio thread, one useful
+  you need a dynamically-sized vector in the audio thread, one useful
   technique is to use `reserve()` when you construct your module. Then you can
   safely call `push_back` in the audio thread as long as you are 100% certain
   you will not push more items than you reserved.
 
+### Workarounds for VCV Rack plugins
 
 I've seen a few examples of VCV Rack plugins that allocate memory in the audio
 thread. The most common example is allocating channels when a cable is patched
@@ -36,16 +79,47 @@ CPU usage coming from allocations. But the MetaModule will behave erratically,
 sometimes doing OK and sometimes failing when you patch a cable.
 
 In order to address this pattern in several VCV Rack modules, the MetaModule
-runs `process` once for each module when it first loads the patch. Sometimes
-modules will allocate only if they detect their data structures have not been
-set up.
+runs `process()` at least once for each module when it first loads the patch,
+before the audio context starts. Often, this triggers all allocations and then
+the module runs fine once the audio context starts.
 
-If you are designing a new module, I would put forth a suggestion to set up all
-data structures in the module constructor. That includes anything that requires
-a heap allocation. Use `reserve()` if you still need dynamic re-sizing.
+To have your module follow this pattern, make allocations in the first call 
+to `process()`, e.g. like this:
 
-Then, in the `process()` function, make sure there is no situation in which a
-memory allocation can happen.
+```c++
+std::vector<float> data;
+
+void process(const ProcessArgs& args) override {
+    static bool first_run = true;
+    if (first_run) {
+        // Allocate on first run of process() only
+        data.resize(12'000'000);
+        first_run = false;
+    }
+    //...
+```
+
+Another approach is to do all allocations in the constructor. Use `reserve()` 
+if you still need dynamic re-sizing. If you are using the VCV adaptor layer,
+there is one downside to this approach: in the case that your modules allocates
+a large amount of memory (say, > 32MB), the situation can come up where users
+are unable to load your plugin without freeing up some memory, even if they don't
+want to use the module that has a high memory footprint. The reason is that
+with VCV Rack adaptor layer plugins, the MetaModule constructs each module in
+the plugin in order to scan the widget tree. So if there's < 32MB free in this
+example, then it won't be able to construct the module that allocates 32MB, 
+and the entire plugin will fail to load. In this case I would suggest using the
+previous method of allocating in the first run of `process()`. Note that
+"native" plugins do not have this issue since they don't have a widget tree and
+therefore aren't constructed when the plugin is loaded.
+
+Another way I've seen it done is to allocate when the number of poly channnels
+changes. While this sometimes works, if the number of polyphonic channals
+changes during audio playback, we will get a CPU spike when it re-allocates
+(i.e. if the user patches a new cable, or changes the poly count of the
+upstream module). I don't recommend this technique, but it's common, so be
+aware if you see it in existing code (and don't copy it).
+
 
 ## Memory
 
@@ -54,7 +128,7 @@ the plugin code (but not data such as PNG files), and any memory individual modu
 in the patch will use. Be mindful that this is a shared resource, so try to 
 keep the memory footprint low if your module deals with large buffers (several MB or more)
 or is able to load files of arbitrary sizes. Remember that users will often want
-duplicates of a module in a patch to make it 4-voice, 8-voice, etc. 
+duplicates of a module in a patch.
 
 ## Disk Access
 
@@ -78,9 +152,9 @@ upsetting and confusing to users.
 
 Make sure any variables you use are initialized to a valid value. I do not
 have hard data to back this up, but my experience has been that often a desktop
-OS will return zero-intialized memory when you request an allocation.
-Perhaps this is a security feature? In any case, the MetaModule does not do this
-(and good coding practices tell us to always initialized a variable before reading it).
+OS will return zero-intialized memory when you request an allocation, perhaps as a 
+security feature. In any case, the MetaModule does not do this (and basic coding
+practices tell us to always initialize a variable before reading it).
 
 Bugs that result from using uninitialized data might not show themselves until
 you port to the MetaModule.

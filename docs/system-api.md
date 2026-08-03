@@ -207,6 +207,20 @@ buffer.resize(free_mem / 4); // limit our usage to 25% of available memory
 
 ```
 
+Note that starting in SDK v2.3, failed allocations will throw an exception, so you should pattern large
+allocations like this:
+
+```c++
+std::vector<float> sample_data;
+
+try {
+    sample_data.resize(sample_size); 
+    sample_loaded = true;
+} catch (std::bad_alloc &) {
+    Gui::notify_user("Could not allocate memory for the sample. Choose a smaller file.", 2000);
+    sample_loaded = false;
+}
+```
 
 ### System::total_memory()
 
