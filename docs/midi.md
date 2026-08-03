@@ -206,6 +206,16 @@ travelling. Note this is not the same as the device's MIDI IN jacks: see
 into a computer rather than acting as a host, it presents a single MIDI port, so
 `cable_num` is always 0.
 
+If you just want to get the name of a given cable number, you can do this:
+
+```c++
+// Get the name of USB MIDI RX Cable #2:
+auto cable = System::get_usb_midi_rx_cable(2);
+if (cable.valid) {
+    // do something with cable.name
+}
+```
+
 ## Midi::toPrettyString()
 
 ```c++

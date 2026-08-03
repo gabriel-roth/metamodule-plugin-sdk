@@ -1,5 +1,6 @@
 // Test plugin for the MetaModule::System USB query API:
 //   get_usb_connection_status()
+//   get_usb_device_name()
 //   get_usb_midi_in_jack_info(n) / get_usb_midi_out_jack_info(n)
 //   get_usb_midi_rx_cable(n) / get_usb_midi_tx_cable(n)
 //
@@ -49,15 +50,17 @@ char const *to_string(UsbConnectionType t) {
 // module can print only when the state actually changes.
 struct Snapshot {
 	UsbConnectionStatus status;
+	UsbDeviceName name;
 	UsbMidiJackInfo in_jacks[MaxMidiJacks];
 	UsbMidiJackInfo out_jacks[MaxMidiJacks];
-	UsbMidiJackInfo rx_cables[MaxMidiCables];
-	UsbMidiJackInfo tx_cables[MaxMidiCables];
+	UsbMidiCableInfo rx_cables[MaxMidiCables];
+	UsbMidiCableInfo tx_cables[MaxMidiCables];
 };
 
 Snapshot take_snapshot() {
 	Snapshot s;
 	s.status = get_usb_connection_status();
+	s.name = get_usb_device_name();
 
 	for (unsigned i = 0; i < MaxMidiJacks; i++) {
 		s.in_jacks[i] = get_usb_midi_in_jack_info(i);
@@ -73,27 +76,31 @@ Snapshot take_snapshot() {
 // Compares only the fields the console dump shows, so a change in any of them
 // re-triggers a dump.
 bool differs(Snapshot const &a, Snapshot const &b) {
-	auto jack_differs = [](UsbMidiJackInfo const &x, UsbMidiJackInfo const &y) {
-		return x.valid != y.valid || x.jack_id != y.jack_id || x.is_embedded != y.is_embedded ||
-			   x.has_cable != y.has_cable || (x.has_cable && x.cable_num != y.cable_num) ||
-			   std::string_view{x.name.c_str()} != std::string_view{y.name.c_str()};
-	};
 
 	if (a.status.connection != b.status.connection || a.status.vid != b.status.vid || a.status.pid != b.status.pid ||
 		a.status.num_midi_in_jacks != b.status.num_midi_in_jacks ||
 		a.status.num_midi_out_jacks != b.status.num_midi_out_jacks ||
 		a.status.num_midi_rx_cables != b.status.num_midi_rx_cables ||
-		a.status.num_midi_tx_cables != b.status.num_midi_tx_cables ||
-		std::string_view{a.status.manufacturer.c_str()} != std::string_view{b.status.manufacturer.c_str()} ||
-		std::string_view{a.status.product.c_str()} != std::string_view{b.status.product.c_str()})
+		a.status.num_midi_tx_cables != b.status.num_midi_tx_cables || a.name.manufacturer != b.name.manufacturer ||
+		a.name.product != b.name.product)
 		return true;
+
+	auto jack_differs = [](UsbMidiJackInfo const &x, UsbMidiJackInfo const &y) {
+		return x.valid != y.valid || x.jack_id != y.jack_id || x.is_embedded != y.is_embedded ||
+			   x.has_cable != y.has_cable || (x.has_cable && x.cable_num != y.cable_num) || x.name != y.name;
+	};
 
 	for (unsigned i = 0; i < MaxMidiJacks; i++) {
 		if (jack_differs(a.in_jacks[i], b.in_jacks[i]) || jack_differs(a.out_jacks[i], b.out_jacks[i]))
 			return true;
 	}
+
+	auto cable_differs = [](UsbMidiCableInfo const &x, UsbMidiCableInfo const &y) {
+		return x.valid != y.valid || x.cable_num != y.cable_num || x.name != y.name;
+	};
+
 	for (unsigned i = 0; i < MaxMidiCables; i++) {
-		if (jack_differs(a.rx_cables[i], b.rx_cables[i]) || jack_differs(a.tx_cables[i], b.tx_cables[i]))
+		if (cable_differs(a.rx_cables[i], b.rx_cables[i]) || cable_differs(a.tx_cables[i], b.tx_cables[i]))
 			return true;
 	}
 	return false;
@@ -141,7 +148,7 @@ void dump_jacks(char const *dir, UsbMidiJackInfo const *jacks, uint8_t declared)
 }
 
 // The cable view: what a module would show the user in a "pick a MIDI port" list.
-void dump_cables(char const *dir, UsbMidiJackInfo const *cables, uint8_t declared) {
+void dump_cables(char const *dir, UsbMidiCableInfo const *cables, uint8_t declared) {
 	printf("[usb-test]   MIDI %s cables: %u declared\n", dir, declared);
 
 	for (unsigned c = 0; c < MaxMidiCables; c++) {
@@ -152,29 +159,22 @@ void dump_cables(char const *dir, UsbMidiJackInfo const *cables, uint8_t declare
 			continue;
 		}
 
-		printf("[usb-test]     cable %u: jack_id=%-3u %-8s name=\"%s\"\n",
-			   c,
-			   j.jack_id,
-			   j.is_embedded ? "Embedded" : "External",
-			   j.name.c_str());
+		printf("[usb-test]     cable %u: name=\"%s\"\n", c, j.name.c_str());
 
 		if (c >= declared)
 			printf("[usb-test]     WARNING: cable %u past the declared count reports valid\n", c);
-		if (!j.has_cable || j.cable_num != c)
-			printf("[usb-test]     WARNING: cable %u reports has_cable=%d cable_num=%u\n", c, j.has_cable, j.cable_num);
-		if (!j.is_embedded)
-			printf("[usb-test]     WARNING: cable %u is served by an External jack\n", c);
 	}
 }
 
 void dump(Snapshot const &s, char const *reason) {
 	auto const &st = s.status;
+	auto const &n = s.name;
 
 	printf("[usb-test] ---- USB connection info (%s) ----\n", reason);
 	printf("[usb-test]   connection: %s (enum %u)\n", to_string(st.connection), static_cast<unsigned>(st.connection));
 	printf("[usb-test]   vid:pid: %04x:%04x\n", st.vid, st.pid);
-	printf("[usb-test]   manufacturer: \"%s\"\n", st.manufacturer.c_str());
-	printf("[usb-test]   product: \"%s\"\n", st.product.c_str());
+	printf("[usb-test]   manufacturer: \"%s\"\n", n.manufacturer.c_str());
+	printf("[usb-test]   product: \"%s\"\n", n.product.c_str());
 
 	dump_jacks("IN ", s.in_jacks, st.num_midi_in_jacks);
 	dump_jacks("OUT", s.out_jacks, st.num_midi_out_jacks);
