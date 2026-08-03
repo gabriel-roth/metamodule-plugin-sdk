@@ -161,8 +161,8 @@ And to test what kind of message it is:
 
 - `is_noteon()` / `is_noteoff()`: these handle the usual convention that a Note
   On with velocity 0 means Note Off.
-- `is_command<MidiCommand::ControlChange>()` (and the other `MidiCommand`
-  values): matches the command nibble, any channel.
+- `is_cc()`: simple check if it's a CC message.
+- `is_command<MidiCommand::XXXX>()`: matches the command nibble, any channel.
 - `is_system_common<SongPositionPtr>()`, `is_system_realtime<TimingClock>()`:
   match a specific system message. The values are `TimeCodeQuarterFrame`,
   `SongPositionPtr`, `SongSelect`, `TuneRequest`, `EndExclusive`, and

@@ -174,6 +174,10 @@ struct MidiMessage {
 		return is_command<MidiCommand::NoteOff>() || (is_command<MidiCommand::NoteOn>() && velocity() == 0);
 	}
 
+	bool is_cc() const {
+		return is_command<MidiCommand::ControlChange>();
+	}
+
 	uint32_t raw() const {
 		return (usb_hdr << 24) | (status << 16) | data;
 	}
