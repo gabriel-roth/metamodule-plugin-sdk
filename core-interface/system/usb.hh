@@ -30,25 +30,35 @@ enum class UsbConnectionType : uint16_t {
 // mode (plugged into a computer) there is no peripheral descriptor to report, so
 // those fields are zero/empty and only `connection` is meaningful.
 struct UsbConnectionStatus {
-	uint16_t vid = 0; // attached device's idVendor (host mode)
-	uint16_t pid = 0; // attached device's idProduct (host mode)
-
 	UsbConnectionType connection = UsbConnectionType::None;
-	uint8_t num_midi_in_jacks = 0; // MIDI IN jacks declared by the device
-	uint8_t num_midi_out_jacks = 0;
 
 	// How many USB-MIDI cables the attached device has in each direction.
 	// "rx"/"tx" are relative to the MetaModule: rx cables carry messages to us,
-	// tx cables carry messages to the device. See get_usb_midi_rx_cable().
+	// tx cables carry messages to the device
 	uint8_t num_midi_rx_cables = 0;
 	uint8_t num_midi_tx_cables = 0;
 
+	// Number of USB MIDI Jacks declared (low-level descriptor access)
+	uint8_t num_midi_in_jacks = 0;
+	uint8_t num_midi_out_jacks = 0;
+
+	uint16_t vid = 0; // attached device's idVendor (host mode)
+	uint16_t pid = 0; // attached device's idProduct (host mode)
+};
+
+struct UsbDeviceName {
 	StaticString<63> manufacturer; // iManufacturer string (may be empty)
 	StaticString<63> product;	   // iProduct string (may be empty)
 };
 
+// Information about a USB-MIDI Cable
+struct UsbMidiCableInfo {
+	StaticString<31> name; // the corresponding jack's iJack string descriptor (may be empty)
+	uint8_t cable_num = 0; // USB-MIDI cable number: only meaningful if valid = true
+	bool valid = false;	   // false if no such cable
+};
+
 // Information about a single USB-MIDI jack (a "port" of the attached device).
-//
 // A USB-MIDI device declares one jack descriptor per port in each direction.
 struct UsbMidiJackInfo {
 	StaticString<31> name;	  // the jack's iJack string descriptor (may be empty)
@@ -68,17 +78,7 @@ inline constexpr unsigned MaxMidiCables = 16;
 
 // Returns the current USB connection status
 UsbConnectionStatus get_usb_connection_status();
-
-// Returns info about a MIDI IN/OUT jack of the attached device.
-// The returned info's `valid` field is false if `num` is out of range.
-//
-// Note these are the device's *jack descriptors*, which is a lower-level view
-// than most modules need: External jacks (the device's physical DIN sockets)
-// appear here but carry no cable number, and the device's MIDI OUT jacks are
-// the ones that send messages *to* us. To pick a MIDI stream to listen to, use
-// get_usb_midi_rx_cable() below instead.
-UsbMidiJackInfo get_usb_midi_in_jack_info(unsigned num);
-UsbMidiJackInfo get_usb_midi_out_jack_info(unsigned num);
+UsbDeviceName get_usb_device_name();
 
 // Returns info about one USB-MIDI cable of the attached device, by cable number.
 // A cable is a MIDI stream you can filter on: `cable_num` matches
@@ -91,7 +91,18 @@ UsbMidiJackInfo get_usb_midi_out_jack_info(unsigned num);
 //
 // Valid cable numbers run 0 .. num_midi_rx_cables-1 (or num_midi_tx_cables-1);
 // out of range returns an entry whose `valid` is false.
-UsbMidiJackInfo get_usb_midi_rx_cable(unsigned cable_num);
-UsbMidiJackInfo get_usb_midi_tx_cable(unsigned cable_num);
+UsbMidiCableInfo get_usb_midi_rx_cable(unsigned cable_num);
+UsbMidiCableInfo get_usb_midi_tx_cable(unsigned cable_num);
+
+// Returns info about a MIDI IN/OUT jack of the attached device.
+// The returned info's `valid` field is false if `num` is out of range.
+//
+// Note these are the device's *jack descriptors*, which is a lower-level view
+// than most modules need: External jacks (the device's physical DIN sockets)
+// appear here but carry no cable number, and the device's MIDI OUT jacks are
+// the ones that send messages *to* us. To pick a MIDI stream to listen to, use
+// get_usb_midi_rx_cable() below instead.
+UsbMidiJackInfo get_usb_midi_in_jack_info(unsigned num);
+UsbMidiJackInfo get_usb_midi_out_jack_info(unsigned num);
 
 } // namespace MetaModule::System
