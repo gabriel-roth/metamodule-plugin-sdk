@@ -7,11 +7,13 @@
   the patch or module gracefully rather than crashing.
 - Add USB query functions (see  [System API](docs/system-api.md)):
    - System::get_usb_connection_status()
+   - System::get_usb_device_name()
    - System::get_usb_midi_rx_cable() and System::get_usb_midi_tx_cable(): look
      up a MIDI port of the attached device by cable number, so a module can
-     list the ports by name and filter incoming messages based on cable number.
-   - System::get_usb_midi_in_jack_info() and System::get_usb_midi_out_jack_info()
-     to see low-level information from the device's descriptors.
+     list the ports by name, filter incoming messages based on cable number, and/or
+     transmit messages over a particular cable.
+   - System::get_usb_midi_in_jack_info() and System::get_usb_midi_out_jack_info():
+     low-level information from the device's descriptors.
 - Fixed MidiInput and MidiOutput API: some headers were missing, making them
   unusable in v2.2.0 and v2.2.1
    - Expanded documentation: [MIDI](docs/midi.md)
@@ -22,7 +24,8 @@
    - New: `tests/usb-info-test` dumps everything the USB query API reports to
      the console.
    - New: `tests/midi-test` converts incoming MIDI to gate/pitch CV and gate/CV
-     back to outgoing Note On/Off, with an LED to verify MIDI rx unpatched.
+     back to outgoing Note On/Off, with an LED to verify MIDI rx unpatched. Also
+     demonstrates filtering based on cable number
 
 
 ### v2.2.1
