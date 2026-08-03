@@ -11,9 +11,15 @@
 //   Note Off. The note number comes from CV In read at the moment the gate goes
 //   high (1V/oct, 0V = note 60). With CV In unpatched it defaults to note 60.
 //
-// Both directions are monophonic with last-note priority: a second Note On
-// while one is held just moves the pitch, and only the Note Off matching the
-// held note drops the gate.
+// CC Out jack:
+//   A CC Out jack demonstrates filtering USB MIDI packets by cable number. This
+//   is hard-wired to only output CC values from a USB MIDI cable whose name contains
+//   "OutEditor". This matches the MCU/HUI setting on the Arturia BeatStepPro, but
+//   may be changed to any string that matches your particular MIDI device.
+//   The MIDI Device must be plugged in BEFORE the module is contructed.
+//   Demonstrating this works: on the BSP, press the top "KNOBS" button to select "CC".
+//   Turning a knob does not change the voltage on the CCOut jack. Next, press "KNOBS"
+//   to select MCU/HUI. Turning the knobs should change the voltage on the CCOut jack.
 
 #include "CoreModules/CoreProcessor.hh"
 #include "CoreModules/elements/element_counter.hh"
@@ -21,6 +27,7 @@
 #include "CoreModules/register_module.hh"
 #include "midi/midi_in.hh"
 #include "midi/midi_out.hh"
+#include "system/usb.hh"
 
 #include <array>
 #include <cmath>
@@ -60,24 +67,29 @@ struct MidiIoInfo : ModuleInfoBase {
 	static constexpr uint32_t width_hp = 6;
 	static constexpr std::string_view png_filename{"MidiTest/panel.png"};
 
-	static constexpr std::array<Element, 5> Elements{{
-		MonoLight{{{{15.24f, 26.f, Coords::Center, "MIDI"}, "MidiTest/light.png"}}, Colors565::Green},
-		JackOutput{{{{15.24f, 36.f, Coords::Center, "Gate Out"}, "MidiTest/jack.png"}}},
-		JackOutput{{{{15.24f, 54.f, Coords::Center, "Note CV"}, "MidiTest/jack.png"}}},
-		JackInput{{{{15.24f, 88.f, Coords::Center, "Gate In"}, "MidiTest/jack.png"}}},
-		JackInput{{{{15.24f, 106.f, Coords::Center, "CV In"}, "MidiTest/jack.png"}}},
+	static constexpr std::array<Element, 6> Elements{{
+		MonoLight{{{{15.24f, 26.f, Coords::Center, "MIDI"}, "4ms/comp/led_x.png"}}, Colors565::Green},
+		JackOutput{{{{15.24f, 36.f, Coords::Center, "Gate Out"}, "4ms/comp/jack_x.png"}}},
+		JackOutput{{{{22.f, 54.f, Coords::Center, "Note CV"}, "4ms/comp/jack_x.png"}}},
+		JackOutput{{{{7.f, 54.f, Coords::Center, "CC out"}, "4ms/comp/jack_x.png"}}},
+		JackInput{{{{15.24f, 88.f, Coords::Center, "Gate In"}, "4ms/comp/jack_x.png"}}},
+		JackInput{{{{15.24f, 106.f, Coords::Center, "CV In"}, "4ms/comp/jack_x.png"}}},
 	}};
 };
 
-enum Outputs { GateOut, NoteCvOut };
+enum Outputs { GateOut, NoteCvOut, CCOut };
 enum Inputs { GateIn, CvIn };
 enum Lights { MidiLed };
 
 static_assert(ElementCount::count<MidiIoInfo>() ==
-			  ElementCount::Counts{.num_params = 0, .num_lights = 1, .num_inputs = 2, .num_outputs = 2});
+			  ElementCount::Counts{.num_params = 0, .num_lights = 1, .num_inputs = 2, .num_outputs = 3});
 
 class MidiIoCore : public CoreProcessor {
 public:
+	MidiIoCore() {
+		set_filter();
+	}
+
 	// Deleting the module with the gate still high would leave whatever we're
 	// driving holding a note forever.
 	~MidiIoCore() override {
@@ -103,6 +115,8 @@ public:
 				return note_held ? GateHighOut : 0.f;
 			case NoteCvOut:
 				return note_to_volts(held_note);
+			case CCOut:
+				return cc_val / 12.7f;
 			default:
 				return 0.f;
 		}
@@ -152,6 +166,9 @@ private:
 				// already superseded by a newer Note On.
 				if (note_held && msg.note() == held_note)
 					note_held = false;
+			} else if (msg.is_cc()) {
+				if (filter_cable && msg.usb_hdr.cable_num == *filter_cable)
+					cc_val = msg.ccval();
 			}
 		}
 	}
@@ -171,6 +188,20 @@ private:
 		last_gate_in_high = gate_high;
 	}
 
+	void set_filter() {
+		auto status = MetaModule::System::get_usb_connection_status();
+
+		for (unsigned c = 0; c < status.num_midi_rx_cables; c++) {
+			auto cable = System::get_usb_midi_rx_cable(c);
+			if (cable.name.contains("OutEditor")) {
+				filter_cable = c;
+				return;
+			}
+		}
+
+		filter_cable = std::nullopt;
+	}
+
 	void send(MidiMessage msg) {
 		if (!midi_out.is_queue_full())
 			midi_out.push_message(msg);
@@ -186,9 +217,12 @@ private:
 	// CV -> MIDI out state
 	float gate_in_volts = 0.f;
 	float cv_in_volts = 0.f;
+	float cc_val = 0.f;
 	bool cv_in_patched = false;
 	bool last_gate_in_high = false;
 	uint8_t sent_note = CenterNote;
+
+	std::optional<uint8_t> filter_cable{};
 };
 
 } // namespace
